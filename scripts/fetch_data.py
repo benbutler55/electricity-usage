@@ -47,11 +47,11 @@ def fetch_account(client: OctopusClient, account_number: str) -> dict:
     mpan = emp["mpan"]
     meter_serial = emp["meters"][0]["serial_number"]
     # Find active agreement (no end date or end date in future)
-    now = now_utc().replace(tzinfo=None)
+    now = now_utc()
     agreements = emp.get("agreements", [])
     active = next(
         (a for a in agreements if a.get("valid_to") is None
-         or datetime.fromisoformat(a["valid_to"].replace("Z", "")) > now),
+         or datetime.fromisoformat(a["valid_to"].replace("Z", "+00:00")) > now),
         agreements[0] if agreements else None,
     )
     if not active:
