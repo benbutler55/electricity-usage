@@ -46,6 +46,14 @@ export function StatusBar() {
               Updated {formatTime(prices.fetched_at)}
             </span>
           )}
+
+          <button
+            onClick={() => window.location.reload()}
+            className="text-xs text-slate-500 hover:text-slate-300 transition-colors px-2 py-1 rounded border border-slate-700 hover:border-slate-500"
+            title="Reload dashboard data"
+          >
+            ↺ Refresh
+          </button>
         </div>
       </div>
     </header>
