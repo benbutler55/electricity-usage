@@ -41,6 +41,8 @@ export function HeatmapGrid() {
     cellMap[cell.hour][cell.day_of_week] = cell
   }
 
+  if (data.cells.length === 0) return <ErrorBanner message="No heatmap data yet — prices will appear once consumption history is matched" />
+
   const allPrices = data.cells.map(c => c.avg_price_inc_vat)
   const minP = Math.min(...allPrices)
   const maxP = Math.max(...allPrices)

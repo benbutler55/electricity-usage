@@ -31,6 +31,8 @@ export function CostAnalysisCard() {
     avgPrice: v.prices.reduce((a, b) => a + b, 0) / v.prices.length,
   }))
 
+  if (hourStats.length === 0) return <ErrorBanner message="Not enough data yet — check back once consumption history is available" />
+
   const cheapestHour = hourStats.reduce((a, b) => a.avgPrice < b.avgPrice ? a : b)
   const peakHour = hourStats.reduce((a, b) => a.avgPrice > b.avgPrice ? a : b)
 
