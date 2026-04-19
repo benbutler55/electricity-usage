@@ -1,0 +1,20 @@
+@import "tailwindcss";
+
+:root {
+  --colour-negative: #3b82f6;   /* blue-500 — Agile price below 0 */
+  --colour-cheap: #22c55e;      /* green-500 — 0 to 16p/kWh */
+  --colour-mid: #f59e0b;        /* amber-500 — 16 to 30p/kWh */
+  --colour-peak: #ef4444;       /* red-500 — above 30p/kWh */
+  --colour-surface: #1e293b;    /* slate-800 */
+  --colour-bg: #0f172a;         /* slate-900 */
+  --colour-border: #334155;     /* slate-700 */
+  --colour-text: #f1f5f9;       /* slate-100 */
+  --colour-muted: #94a3b8;      /* slate-400 */
+}
+
+body {
+  background-color: var(--colour-bg);
+  color: var(--colour-text);
+  font-family: ui-sans-serif, system-ui, sans-serif;
+  min-height: 100dvh;
+}

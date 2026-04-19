@@ -1,0 +1,18 @@
+# Dependencies
+node_modules/
+
+# Session memory logs (managed by Claude Code)
+.remember/
+
+# Claude settings (local overrides)
+.claude/settings.local.json
+
+# Build output
+dist/
+
+# Generated data files (created by GitHub Actions / local fetch script)
+public/data/*.json
+
+# Misc
+.DS_Store
+*.local
