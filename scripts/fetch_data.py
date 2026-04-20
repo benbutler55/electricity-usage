@@ -39,13 +39,41 @@ def iso(dt: datetime) -> str:
     return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def find_active_meter_serial(client: OctopusClient, mpan: str, serials: list[str]) -> str:
+    """Try each meter serial and return the first one that has consumption data."""
+    now = now_utc()
+    period_from = iso(now - timedelta(hours=48))
+    path = f"/electricity-meter-points/{mpan}/meters/{{serial}}/consumption/"
+    for serial in serials:
+        try:
+            result = client.get(path.format(serial=serial), {
+                "period_from": period_from,
+                "period_to": iso(now),
+                "page_size": 1,
+            })
+            if result.get("count", 0) > 0 or result.get("results"):
+                print(f"  active meter serial: {serial}")
+                return serial
+            print(f"  serial {serial}: no data")
+        except Exception as e:
+            print(f"  serial {serial}: error ({e})")
+    # Fall back to first serial if none return data
+    print(f"  warning: no serial returned data, using {serials[0]}")
+    return serials[0]
+
+
 def fetch_account(client: OctopusClient, account_number: str) -> dict:
     print("Fetching account info…")
     data = client.get(f"/accounts/{account_number}/")
     prop = data["properties"][0]
     emp = prop["electricity_meter_points"][0]
     mpan = emp["mpan"]
-    meter_serial = emp["meters"][0]["serial_number"]
+
+    # Collect all meter serials — accounts may have multiple (old + new after upgrade)
+    all_serials = [m["serial_number"] for m in emp.get("meters", [])]
+    print(f"  meters found: {all_serials}")
+    meter_serial = find_active_meter_serial(client, mpan, all_serials) if all_serials else ""
+
     # Find active agreement (no end date or end date in future)
     now = now_utc()
     agreements = emp.get("agreements", [])
@@ -57,7 +85,7 @@ def fetch_account(client: OctopusClient, account_number: str) -> dict:
     if not active:
         raise ValueError("No active tariff agreement found")
     tariff_code = active["tariff_code"]
-    # e.g. E-1R-AGILE-24-10-01-C → product_slug=AGILE-24-10-01, region=C
+    # e.g. E-1R-AGILE-24-10-01-A → product_slug=AGILE-24-10-01, region=A
     parts = tariff_code.split("-")
     region = parts[-1]
     product_slug = "-".join(parts[2:-1])
