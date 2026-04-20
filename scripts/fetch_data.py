@@ -101,8 +101,9 @@ def fetch_account(client: OctopusClient, account_number: str) -> dict:
 def fetch_prices(client: OctopusClient, product_slug: str, tariff_code: str) -> list[dict]:
     print("Fetching Agile prices…")
     now = now_utc()
-    period_from = now.replace(hour=0, minute=0, second=0, microsecond=0)
-    period_to = period_from + timedelta(days=2)
+    # Go back 48h so prices overlap fully with the consumption window
+    period_from = (now - timedelta(hours=48)).replace(minute=0, second=0, microsecond=0)
+    period_to = now.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=2)
     path = f"/products/{product_slug}/electricity-tariffs/{tariff_code}/standard-unit-rates/"
     slots = client.paginate(path, {
         "period_from": iso(period_from),
