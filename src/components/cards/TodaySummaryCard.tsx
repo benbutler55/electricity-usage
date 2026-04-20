@@ -1,5 +1,6 @@
 import { usePrices } from '../../hooks/usePrices'
 import { useConsumption } from '../../hooks/useConsumption'
+import { useDaily } from '../../hooks/useDaily'
 import { StatTile } from '../shared/StatTile'
 import { LoadingSpinner } from '../shared/LoadingSpinner'
 import { penceToPounds, formatPrice, formatKwh, localDateString, formatTime } from '../../lib/formatters'
@@ -8,51 +9,60 @@ import { tierTextClass } from '../../lib/priceColour'
 export function TodaySummaryCard() {
   const { data: prices, loading: pl } = usePrices()
   const { data: consumption, loading: cl } = useConsumption()
+  const { data: daily, loading: dl } = useDaily()
 
-  if (pl || cl) return <LoadingSpinner />
+  if (pl || cl || dl) return <LoadingSpinner />
 
   const now = new Date()
   const todayStr = localDateString(now.toISOString())
 
-  // Consumption slots from today (local date)
   const todayConsumption = consumption?.slots.filter(
     s => localDateString(s.interval_start) === todayStr
   ) ?? []
 
-  // Prices for today
-  const todayPrices = prices?.slots.filter(
-    s => localDateString(s.valid_from) === todayStr
-  ) ?? []
+  const allPrices = prices?.slots ?? []
+  const priceMap = new Map(allPrices.map(s => [new Date(s.valid_from).toISOString(), s.value_inc_vat]))
 
-  // Match consumption to price by interval_start == valid_from
-  const priceMap = new Map(todayPrices.map(s => [new Date(s.valid_from).toISOString(), s.value_inc_vat]))
-
-  // Cost so far — only slots that have ended
   const completedSlots = todayConsumption.filter(s => new Date(s.interval_end) <= now)
   const costSoFar = completedSlots.reduce((acc, s) => {
-    const price = priceMap.get(new Date(s.interval_start).toISOString()) ?? 0
-    return acc + s.consumption * price
+    return acc + s.consumption * (priceMap.get(new Date(s.interval_start).toISOString()) ?? 0)
   }, 0)
   const kwhToday = todayConsumption.reduce((acc, s) => acc + s.consumption, 0)
 
+  // Most recent complete day from daily.json (used as fallback when today has no data yet)
+  const completeDays = daily?.days.filter(d => d.complete) ?? []
+  const latestDay = completeDays[completeDays.length - 1] ?? null
+  const hasTodayData = todayConsumption.length > 0
+
   // Cheapest upcoming slot
-  const upcoming = prices?.slots.filter(s => new Date(s.valid_from) > now) ?? []
+  const upcoming = allPrices.filter(s => new Date(s.valid_from) > now)
   const cheapest = upcoming.length > 0
     ? upcoming.reduce((a, b) => a.value_inc_vat < b.value_inc_vat ? a : b)
     : null
 
+  const heading = hasTodayData ? 'Today' : latestDay ? `Latest · ${latestDay.date}` : 'Today'
+
   return (
     <div className="bg-slate-800 rounded-xl p-5 border border-slate-700">
-      <h2 className="text-sm font-medium text-slate-400 uppercase tracking-wide mb-4">Today</h2>
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-sm font-medium text-slate-400 uppercase tracking-wide">{heading}</h2>
+        {!hasTodayData && (
+          <span className="text-xs text-slate-500">Today's data arrives ~24h later</span>
+        )}
+      </div>
       <div className="grid grid-cols-3 gap-4">
         <StatTile
-          label="Cost so far"
-          value={completedSlots.length ? penceToPounds(costSoFar) : '—'}
-          sub={completedSlots.length ? `${completedSlots.length} slots` : 'No data yet'}
+          label={hasTodayData ? 'Cost so far' : 'Total cost'}
+          value={hasTodayData
+            ? (completedSlots.length ? penceToPounds(costSoFar) : '—')
+            : (latestDay ? penceToPounds(latestDay.cost_pence) : '—')}
+          sub={hasTodayData && completedSlots.length ? `${completedSlots.length} slots` : undefined}
         />
         <StatTile
           label="Consumed"
-          value={todayConsumption.length ? formatKwh(kwhToday) : '—'}
+          value={hasTodayData
+            ? (todayConsumption.length ? formatKwh(kwhToday) : '—')
+            : (latestDay ? formatKwh(latestDay.kwh) : '—')}
         />
         {cheapest ? (
           <div className="flex flex-col gap-1">
