@@ -124,13 +124,18 @@ def fetch_consumption(client: OctopusClient, mpan: str, serial: str, hours: int 
     return sorted(slots, key=lambda s: s["interval_start"])
 
 
+def _utc_key(ts: str) -> str:
+    """Normalise any ISO timestamp to UTC Z format for consistent map lookups."""
+    return datetime.fromisoformat(ts.replace("Z", "+00:00")).astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
 def build_daily(consumption_30d: list[dict], prices_map: dict[str, float]) -> list[dict]:
     by_day: dict[str, dict] = defaultdict(lambda: {"cost_pence": 0.0, "kwh": 0.0, "slot_count": 0})
     for slot in consumption_30d:
         dt_local = datetime.fromisoformat(slot["interval_start"].replace("Z", "+00:00")).astimezone(LONDON)
         day_key = dt_local.strftime("%Y-%m-%d")
         kwh = slot["consumption"]
-        price = prices_map.get(slot["interval_start"])
+        price = prices_map.get(_utc_key(slot["interval_start"]))
         cost = kwh * price if price is not None else 0.0
         by_day[day_key]["cost_pence"] += cost
         by_day[day_key]["kwh"] += kwh
@@ -156,7 +161,7 @@ def build_heatmap(consumption_30d: list[dict], prices_map: dict[str, float]) -> 
         hour = dt_local.hour
         dow = dt_local.weekday()
         kwh = slot["consumption"]
-        price = prices_map.get(slot["interval_start"])
+        price = prices_map.get(_utc_key(slot["interval_start"]))
         if price is not None:
             cells[(hour, dow)]["prices"].append(price)
             cells[(hour, dow)]["costs"].append(kwh * price)
@@ -259,7 +264,7 @@ def main() -> None:
             "slots": price_slots,
         })
         for s in price_slots:
-            prices_map[s["valid_from"]] = s["value_inc_vat"]
+            prices_map[_utc_key(s["valid_from"])] = s["value_inc_vat"]
     except Exception as e:
         print(f"WARNING: could not fetch prices: {e}", file=sys.stderr)
 
@@ -290,7 +295,7 @@ def main() -> None:
             authenticated=False,
         )
         for s in hist_slots:
-            prices_map[s["valid_from"]] = s["value_inc_vat"]
+            prices_map[_utc_key(s["valid_from"])] = s["value_inc_vat"]
 
         days = build_daily(consumption_30d, prices_map)
         write_json("daily.json", {"fetched_at": fetched_at, "days": days})

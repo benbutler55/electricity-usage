@@ -25,10 +25,11 @@ export function ConsumptionOverlay() {
   if (cl || pl) return <LoadingSpinner />
   if (ce || !consumption) return <ErrorBanner />
 
-  const priceMap = new Map(prices?.slots.map(s => [s.valid_from, s.value_inc_vat]) ?? [])
+  // Normalise to UTC ISO string so BST (+01:00) and Z timestamps match
+  const priceMap = new Map(prices?.slots.map(s => [new Date(s.valid_from).toISOString(), s.value_inc_vat]) ?? [])
 
   const points: ChartPoint[] = consumption.slots.map(s => {
-    const price = priceMap.get(s.interval_start) ?? null
+    const price = priceMap.get(new Date(s.interval_start).toISOString()) ?? null
     return {
       time: formatTime(s.interval_start),
       kwh: s.consumption,

@@ -25,12 +25,12 @@ export function TodaySummaryCard() {
   ) ?? []
 
   // Match consumption to price by interval_start == valid_from
-  const priceMap = new Map(todayPrices.map(s => [s.valid_from, s.value_inc_vat]))
+  const priceMap = new Map(todayPrices.map(s => [new Date(s.valid_from).toISOString(), s.value_inc_vat]))
 
   // Cost so far — only slots that have ended
   const completedSlots = todayConsumption.filter(s => new Date(s.interval_end) <= now)
   const costSoFar = completedSlots.reduce((acc, s) => {
-    const price = priceMap.get(s.interval_start) ?? 0
+    const price = priceMap.get(new Date(s.interval_start).toISOString()) ?? 0
     return acc + s.consumption * price
   }, 0)
   const kwhToday = todayConsumption.reduce((acc, s) => acc + s.consumption, 0)
