@@ -8,6 +8,7 @@ import { AgileLineChart } from '../components/charts/AgileLineChart'
 import { ConsumptionOverlay } from '../components/charts/ConsumptionOverlay'
 import { DailyCostBarChart } from '../components/charts/DailyCostBarChart'
 import { HeatmapGrid } from '../components/charts/HeatmapGrid'
+import { BatteryOptimiser } from '../components/battery/BatteryOptimiser'
 
 export default function Dashboard() {
   return (
@@ -30,6 +31,10 @@ export default function Dashboard() {
 
         <SectionGrid cols={1}>
           <HeatmapGrid />
+        </SectionGrid>
+
+        <SectionGrid cols={1}>
+          <BatteryOptimiser />
         </SectionGrid>
 
         <SectionGrid cols={1}>
