@@ -27,8 +27,8 @@ export function ConsumptionOverlay() {
 
   const now = new Date()
 
-  // Last 48h of price slots as the authoritative x-axis
-  const cutoff = new Date(now.getTime() - 48 * 60 * 60 * 1000)
+  // Last 72h of price slots as the authoritative x-axis
+  const cutoff = new Date(now.getTime() - 72 * 60 * 60 * 1000)
   const priceSlots = prices.slots
     .filter(s => new Date(s.valid_from) >= cutoff && new Date(s.valid_from) <= now)
     .sort((a, b) => new Date(a.valid_from).getTime() - new Date(b.valid_from).getTime())
@@ -62,7 +62,7 @@ export function ConsumptionOverlay() {
       <div className="flex items-start justify-between mb-4 gap-2 flex-wrap">
         <div>
           <h2 className="text-sm font-medium text-slate-400 uppercase tracking-wide">
-            Consumption vs Price (48h)
+            Consumption vs Price (72h)
           </h2>
           {lagNote && <p className="text-xs text-slate-500 mt-0.5">{lagNote}</p>}
         </div>

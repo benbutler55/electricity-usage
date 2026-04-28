@@ -101,8 +101,8 @@ def fetch_account(client: OctopusClient, account_number: str) -> dict:
 def fetch_prices(client: OctopusClient, product_slug: str, tariff_code: str) -> list[dict]:
     print("Fetching Agile prices…")
     now = now_utc()
-    # Go back 48h so prices overlap fully with the consumption window
-    period_from = (now - timedelta(hours=48)).replace(minute=0, second=0, microsecond=0)
+    # Go back 72h so prices overlap fully with the consumption window
+    period_from = (now - timedelta(hours=72)).replace(minute=0, second=0, microsecond=0)
     period_to = now.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=2)
     path = f"/products/{product_slug}/electricity-tariffs/{tariff_code}/standard-unit-rates/"
     slots = client.paginate(path, {
@@ -112,7 +112,7 @@ def fetch_prices(client: OctopusClient, product_slug: str, tariff_code: str) -> 
     return sorted(slots, key=lambda s: s["valid_from"])
 
 
-def fetch_consumption(client: OctopusClient, mpan: str, serial: str, hours: int = 48) -> list[dict]:
+def fetch_consumption(client: OctopusClient, mpan: str, serial: str, hours: int = 72) -> list[dict]:
     print(f"Fetching consumption ({hours}h)…")
     now = now_utc()
     period_from = now - timedelta(hours=hours)
@@ -271,10 +271,10 @@ def main() -> None:
 
     # Step 3: Consumption 48h
     try:
-        consumption_48h = fetch_consumption(client, mpan, serial, hours=48)
+        consumption_48h = fetch_consumption(client, mpan, serial, hours=72)
         write_json("consumption.json", {
             "fetched_at": fetched_at,
-            "period_from": iso(now_utc() - timedelta(hours=48)),
+            "period_from": iso(now_utc() - timedelta(hours=72)),
             "period_to": iso(now_utc()),
             "slots": consumption_48h,
         })
