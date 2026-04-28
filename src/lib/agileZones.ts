@@ -1,4 +1,4 @@
-import type { PriceSlot } from '../types/data'
+import type { PriceSlot, HeatmapCell } from '../types/data'
 
 export const PRICE_THRESHOLDS = {
   negative: 0,
@@ -17,11 +17,14 @@ export interface ScheduledSlot {
 }
 
 export interface BatterySavings {
-  dailyPence: number
+  dailyPence: number          // capped by realistic consumption
   monthlyPence: number
+  theoreticalDailyPence: number  // assumes full capacity utilised every cycle
   avgChargePence: number
   avgDischargePence: number
   chargeSlotCount: number
+  effectiveKwh: number        // kWh actually shifted (min of capacity vs peak consumption)
+  isConsumptionLimited: boolean
 }
 
 export interface ChargeWindow {
@@ -59,24 +62,67 @@ export function scheduleSlots(slots: PriceSlot[], capacityKwh: number): Schedule
   }))
 }
 
+const TZ = 'Europe/London'
+
 /**
  * Calculates estimated savings for a battery of given capacity.
+ * Pass heatmapCells to get a consumption-realistic figure; omit for theoretical max.
+ *
+ * Formula: saving = effectiveKwh × (avgDischarge − avgCharge ÷ efficiency)
+ *   - You draw capacityKwh/efficiency from the grid to store capacityKwh (charge loss)
+ *   - You avoid buying effectiveKwh at the peak rate (discharge gain)
+ *   - effectiveKwh is capped at typical consumption during the discharge window
  */
-export function calcBatterySavings(slots: PriceSlot[], capacityKwh: number): BatterySavings {
-  if (slots.length === 0) return { dailyPence: 0, monthlyPence: 0, avgChargePence: 0, avgDischargePence: 0, chargeSlotCount: 0 }
+export function calcBatterySavings(
+  slots: PriceSlot[],
+  capacityKwh: number,
+  heatmapCells?: HeatmapCell[],
+): BatterySavings {
+  const empty: BatterySavings = {
+    dailyPence: 0, monthlyPence: 0, theoreticalDailyPence: 0,
+    avgChargePence: 0, avgDischargePence: 0, chargeSlotCount: 0,
+    effectiveKwh: 0, isConsumptionLimited: false,
+  }
+  if (slots.length === 0) return empty
+
   const n = Math.max(1, Math.ceil(capacityKwh / (CHARGE_RATE_KW * 0.5)))
   const sorted = [...slots].sort((a, b) => a.value_inc_vat - b.value_inc_vat)
   const chargeGroup = sorted.slice(0, n)
   const dischargeGroup = sorted.slice(-n)
   const avgCharge = chargeGroup.reduce((a, s) => a + s.value_inc_vat, 0) / chargeGroup.length
   const avgDischarge = dischargeGroup.reduce((a, s) => a + s.value_inc_vat, 0) / dischargeGroup.length
-  const dailyPence = Math.max(0, capacityKwh * (avgDischarge - avgCharge / ROUND_TRIP_EFFICIENCY))
+
+  const theoreticalDailyPence = Math.max(0, capacityKwh * (avgDischarge - avgCharge / ROUND_TRIP_EFFICIENCY))
+
+  // Estimate realistic consumption during discharge window from heatmap
+  let effectiveKwh = capacityKwh
+  let isConsumptionLimited = false
+  if (heatmapCells && heatmapCells.length > 0) {
+    const heatmapMap = new Map(
+      heatmapCells.map(c => [`${c.hour}:${c.day_of_week}`, c.avg_kwh])
+    )
+    const peakConsumption = dischargeGroup.reduce((sum, slot) => {
+      const dt = new Date(slot.valid_from)
+      const hour = Number(new Intl.DateTimeFormat('en-GB', { hour: 'numeric', hour12: false, timeZone: TZ }).format(dt))
+      const dow = (dt.getDay() + 6) % 7 // 0=Mon
+      return sum + (heatmapMap.get(`${hour}:${dow}`) ?? 0)
+    }, 0)
+    if (peakConsumption > 0 && peakConsumption < capacityKwh) {
+      effectiveKwh = peakConsumption
+      isConsumptionLimited = true
+    }
+  }
+
+  const dailyPence = Math.max(0, effectiveKwh * (avgDischarge - avgCharge / ROUND_TRIP_EFFICIENCY))
   return {
     dailyPence,
     monthlyPence: dailyPence * 30,
+    theoreticalDailyPence,
     avgChargePence: avgCharge,
     avgDischargePence: avgDischarge,
     chargeSlotCount: n,
+    effectiveKwh,
+    isConsumptionLimited,
   }
 }
 
