@@ -6,7 +6,7 @@ export const PRICE_THRESHOLDS = {
   mid: 30,
 } as const
 
-export const CHARGE_RATE_KW = 2.5   // assumed charge rate for scheduling
+export const CHARGE_RATE_KW = 2.5   // default charge rate; pass battery-specific rate where known
 export const ROUND_TRIP_EFFICIENCY = 0.92
 
 export type SlotAction = 'charge' | 'discharge' | 'normal'
@@ -48,9 +48,9 @@ export function cheapestSlots(slots: PriceSlot[], n: number): ChargeWindow[] {
  * Charge = cheapest N slots (enough to fill the battery at CHARGE_RATE_KW).
  * Discharge = most expensive N slots (when to avoid the grid).
  */
-export function scheduleSlots(slots: PriceSlot[], capacityKwh: number): ScheduledSlot[] {
+export function scheduleSlots(slots: PriceSlot[], capacityKwh: number, chargeRateKw = CHARGE_RATE_KW): ScheduledSlot[] {
   if (slots.length === 0) return []
-  const n = Math.max(1, Math.ceil(capacityKwh / (CHARGE_RATE_KW * 0.5)))
+  const n = Math.max(1, Math.ceil(capacityKwh / (chargeRateKw * 0.5)))
   const sorted = [...slots].sort((a, b) => a.value_inc_vat - b.value_inc_vat)
   const chargeSet = new Set(sorted.slice(0, n).map(s => s.valid_from))
   const dischargeSet = new Set(sorted.slice(-n).map(s => s.valid_from))
@@ -77,6 +77,8 @@ export function calcBatterySavings(
   slots: PriceSlot[],
   capacityKwh: number,
   heatmapCells?: HeatmapCell[],
+  chargeRateKw = CHARGE_RATE_KW,
+  efficiency = ROUND_TRIP_EFFICIENCY,
 ): BatterySavings {
   const empty: BatterySavings = {
     dailyPence: 0, monthlyPence: 0, theoreticalDailyPence: 0,
@@ -85,14 +87,14 @@ export function calcBatterySavings(
   }
   if (slots.length === 0) return empty
 
-  const n = Math.max(1, Math.ceil(capacityKwh / (CHARGE_RATE_KW * 0.5)))
+  const n = Math.max(1, Math.ceil(capacityKwh / (chargeRateKw * 0.5)))
   const sorted = [...slots].sort((a, b) => a.value_inc_vat - b.value_inc_vat)
   const chargeGroup = sorted.slice(0, n)
   const dischargeGroup = sorted.slice(-n)
   const avgCharge = chargeGroup.reduce((a, s) => a + s.value_inc_vat, 0) / chargeGroup.length
   const avgDischarge = dischargeGroup.reduce((a, s) => a + s.value_inc_vat, 0) / dischargeGroup.length
 
-  const theoreticalDailyPence = Math.max(0, capacityKwh * (avgDischarge - avgCharge / ROUND_TRIP_EFFICIENCY))
+  const theoreticalDailyPence = Math.max(0, capacityKwh * (avgDischarge - avgCharge / efficiency))
 
   // Estimate realistic consumption during discharge window from heatmap
   let effectiveKwh = capacityKwh
@@ -113,7 +115,7 @@ export function calcBatterySavings(
     }
   }
 
-  const dailyPence = Math.max(0, effectiveKwh * (avgDischarge - avgCharge / ROUND_TRIP_EFFICIENCY))
+  const dailyPence = Math.max(0, effectiveKwh * (avgDischarge - avgCharge / efficiency))
   return {
     dailyPence,
     monthlyPence: dailyPence * 30,

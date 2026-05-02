@@ -225,6 +225,84 @@ def build_monthly(days: list[dict]) -> dict:
     return {"current": aggregate(current_month), "previous": aggregate(prev_month)}
 
 
+BATTERY_CATALOG = [
+    {
+        "id": "dji-power-1000",
+        "name": "DJI Power 1000",
+        "kwh": 1.024,
+        "charge_rate_kw": 2.2,
+        "efficiency": 0.90,
+        "price_gbp": 699,
+        "install_gbp": 0,
+        "plug_in": True,
+        "whole_home": False,
+        "url": "https://store.dji.com/uk/product/dji-power-1000",
+        "notes": "LiFePO4 · 4,000 cycles · expandable to 11.3 kWh · 13A plug",
+    },
+    {
+        "id": "mygrid-moduleone",
+        "name": "MyGrid ModuleOne",
+        "kwh": 1.5,
+        "charge_rate_kw": 0.8,
+        "efficiency": 0.90,
+        "price_gbp": 1460,
+        "install_gbp": 0,
+        "plug_in": True,
+        "whole_home": False,
+        "url": "https://www.mygrid.energy/module-one",
+        "notes": "LiFePO4 · 6,000 cycles · 800W bidirectional · UK company · 13A plug",
+    },
+    {
+        "id": "dji-power-2000",
+        "name": "DJI Power 2000",
+        "kwh": 2.048,
+        "charge_rate_kw": 2.2,
+        "efficiency": 0.90,
+        "price_gbp": 959,
+        "install_gbp": 0,
+        "plug_in": True,
+        "whole_home": False,
+        "url": "https://store.dji.com/uk/product/dji-power-2000",
+        "notes": "LiFePO4 · 4,000 cycles · expandable · 13A plug",
+    },
+    {
+        "id": "ecoflow-powerocean-5",
+        "name": "EcoFlow PowerOcean (5 kWh)",
+        "kwh": 5.12,
+        "charge_rate_kw": 6.0,
+        "efficiency": 0.94,
+        "price_gbp": 2750,
+        "install_gbp": 750,
+        "plug_in": False,
+        "whole_home": True,
+        "url": "https://energy.ecoflow.com/uk/products/PowerOcean-Single-Phase",
+        "notes": "LFP · 6,000 cycles · 15yr warranty · Octopus native integration · dedicated circuit",
+    },
+    {
+        "id": "ecoflow-powerocean-10",
+        "name": "EcoFlow PowerOcean (10 kWh)",
+        "kwh": 10.24,
+        "charge_rate_kw": 6.0,
+        "efficiency": 0.94,
+        "price_gbp": 5200,
+        "install_gbp": 750,
+        "plug_in": False,
+        "whole_home": True,
+        "url": "https://energy.ecoflow.com/uk/products/PowerOcean-Single-Phase",
+        "notes": "LFP · 6,000 cycles · 15yr warranty · Octopus native integration · dedicated circuit",
+    },
+]
+
+
+def build_battery_catalog(fetched_at: str) -> dict:
+    # Prices are maintained manually here; update and push when manufacturers change pricing
+    return {
+        "generated_at": fetched_at,
+        "prices_verified": fetched_at[:10],
+        "batteries": BATTERY_CATALOG,
+    }
+
+
 def main() -> None:
     api_key = os.environ.get("OCTOPUS_API_KEY", "")
     account_number = os.environ.get("OCTOPUS_ACCOUNT_NUMBER", "")
@@ -311,6 +389,7 @@ def main() -> None:
     except Exception as e:
         print(f"WARNING: could not fetch 30d data: {e}", file=sys.stderr)
 
+    write_json("batteries.json", build_battery_catalog(fetched_at))
     print("Done.")
 
 

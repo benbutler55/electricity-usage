@@ -68,6 +68,26 @@ export interface HeatmapData {
   cells: HeatmapCell[]
 }
 
+export interface BatteryProduct {
+  id: string
+  name: string
+  kwh: number
+  charge_rate_kw: number
+  efficiency: number
+  price_gbp: number
+  install_gbp: number
+  plug_in: boolean
+  whole_home: boolean
+  url: string
+  notes: string
+}
+
+export interface BatteryCatalog {
+  generated_at: string
+  prices_verified: string
+  batteries: BatteryProduct[]
+}
+
 export interface MetaData {
   fetched_at: string
   mpan: string

@@ -12,6 +12,7 @@ dist/
 
 # Generated data files (created by GitHub Actions / local fetch script)
 public/data/*.json
+# batteries.json is generated from BATTERY_CATALOG in fetch_data.py
 
 # Misc
 .DS_Store
