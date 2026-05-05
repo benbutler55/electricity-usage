@@ -294,6 +294,42 @@ BATTERY_CATALOG = [
 ]
 
 
+COMPARISON_TARIFFS = [
+    {"id": "go",       "name": "Octopus Go",       "product_slug": "GO-FIX-12M-26-04-18"},
+    {"id": "cosy",     "name": "Cosy Octopus",      "product_slug": "COSY-FIX-12M-26-03-23"},
+    {"id": "flux",     "name": "Intelligent Flux",  "product_slug": "INTELLI-FLUX-IMPORT-23-07-14"},
+    {"id": "flexible", "name": "Flexible Octopus",  "product_slug": "VAR-22-11-01"},
+]
+
+
+def fetch_tariff_comparison(client: OctopusClient, region: str) -> list[dict]:
+    print("Fetching tariff comparison rates…")
+    now = now_utc()
+    period_from = (now - timedelta(hours=72)).replace(minute=0, second=0, microsecond=0)
+    period_to = now.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=2)
+
+    tariffs = []
+    for t in COMPARISON_TARIFFS:
+        tariff_code = f"E-1R-{t['product_slug']}-{region}"
+        path = f"/products/{t['product_slug']}/electricity-tariffs/{tariff_code}/standard-unit-rates/"
+        try:
+            slots = client.paginate(path, {
+                "period_from": iso(period_from),
+                "period_to": iso(period_to),
+            }, authenticated=False)
+            tariffs.append({
+                "id": t["id"],
+                "name": t["name"],
+                "product_slug": t["product_slug"],
+                "slots": sorted(slots, key=lambda s: s["valid_from"]),
+            })
+            print(f"  {t['name']}: {len(slots)} slots")
+        except Exception as e:
+            print(f"  WARNING: could not fetch {t['name']} ({tariff_code}): {e}", file=sys.stderr)
+
+    return tariffs
+
+
 def build_battery_catalog(fetched_at: str) -> dict:
     # Prices are maintained manually here; update and push when manufacturers change pricing
     return {
@@ -388,6 +424,17 @@ def main() -> None:
         write_json("monthly.json", {"fetched_at": fetched_at, **build_monthly(days)})
     except Exception as e:
         print(f"WARNING: could not fetch 30d data: {e}", file=sys.stderr)
+
+    # Step 5: Tariff comparison rates for Go, Cosy, Flux, Flexible
+    try:
+        comparison_tariffs = fetch_tariff_comparison(client, account["region"])
+        write_json("tariff_comparison.json", {
+            "fetched_at": fetched_at,
+            "region": account["region"],
+            "tariffs": comparison_tariffs,
+        })
+    except Exception as e:
+        print(f"WARNING: could not fetch tariff comparison: {e}", file=sys.stderr)
 
     write_json("batteries.json", build_battery_catalog(fetched_at))
     print("Done.")
