@@ -52,9 +52,17 @@ function getThresholds(
   const kwhPerSlot = chargeRateKw * 0.5
   const nFill = Math.max(1, Math.ceil(capacityKwh / kwhPerSlot))
   const sortedAsc = [...slots].sort((a, b) => a.value_inc_vat - b.value_inc_vat)
+
+  // avgCharge uses the exact cheapest nFill slots — keeps the savings calculation accurate.
   const refSlots = sortedAsc.slice(0, nFill)
   const avgCharge = refSlots.reduce((a, s) => a + s.value_inc_vat, 0) / refSlots.length
-  const maxChargePrice = refSlots[refSlots.length - 1].value_inc_vat
+
+  // Charge threshold uses nFill+1 slots so that a slot 0.1–0.2p above the exact
+  // Nth-cheapest isn't excluded by a rounding gap.  Without this, one missing
+  // pre-peak charge slot leaves the battery half-full and budget=1.
+  const threshIdx = Math.min(nFill, sortedAsc.length - 1)
+  const maxChargePrice = sortedAsc[threshIdx].value_inc_vat
+
   return { kwhPerSlot, nFill, avgCharge, maxChargePrice, breakEven: avgCharge / efficiency }
 }
 
