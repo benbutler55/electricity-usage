@@ -9,6 +9,7 @@ import { ConsumptionOverlay } from '../components/charts/ConsumptionOverlay'
 import { DailyCostBarChart } from '../components/charts/DailyCostBarChart'
 import { HeatmapGrid } from '../components/charts/HeatmapGrid'
 import { BatteryOptimiser } from '../components/battery/BatteryOptimiser'
+import { TariffComparisonPanel } from '../components/tariffs/TariffComparisonPanel'
 
 export default function Dashboard() {
   return (
@@ -22,6 +23,10 @@ export default function Dashboard() {
         <SectionGrid cols={2}>
           <AgileLineChart />
           <ConsumptionOverlay />
+        </SectionGrid>
+
+        <SectionGrid cols={1}>
+          <TariffComparisonPanel />
         </SectionGrid>
 
         <SectionGrid cols={2}>
