@@ -96,3 +96,16 @@ export interface MetaData {
   product_slug: string   // e.g. AGILE-24-10-01
   region: string         // single letter, e.g. C
 }
+
+export interface TariffEntry {
+  id: string           // 'go' | 'cosy' | 'flux' | 'flexible'
+  name: string
+  product_slug: string
+  slots: PriceSlot[]   // same shape as prices.json slots
+}
+
+export interface TariffComparisonData {
+  fetched_at: string
+  region: string
+  tariffs: TariffEntry[]
+}
