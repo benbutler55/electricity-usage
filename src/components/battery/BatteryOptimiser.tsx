@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { usePrices } from '../../hooks/usePrices'
 import { useData } from '../../hooks/useData'
-import type { HeatmapData, BatteryCatalog, BatteryProduct } from '../../types/data'
+import type { HeatmapData, BatteryCatalog, BatteryProduct, TariffComparisonData } from '../../types/data'
 import { LoadingSpinner } from '../shared/LoadingSpinner'
 import { ErrorBanner } from '../shared/ErrorBanner'
 import { formatTime, penceToPounds } from '../../lib/formatters'
@@ -41,6 +41,7 @@ export function BatteryOptimiser() {
   const { data: prices, loading, error } = usePrices()
   const { data: heatmap } = useData<HeatmapData>('./data/heatmap.json')
   const { data: catalog } = useData<BatteryCatalog>('./data/batteries.json')
+  const { data: tariffComparison } = useData<TariffComparisonData>('./data/tariff_comparison.json')
   const [selectedId, setSelectedId] = useState('ecoflow-powerocean-5')
 
   if (loading) return <LoadingSpinner />
@@ -59,10 +60,15 @@ export function BatteryOptimiser() {
   const batteries: BatteryProduct[] = catalog?.batteries ?? []
   const selected = batteries.find(b => b.id === selectedId) ?? batteries[0]
 
+  const fluxSlots = tariffComparison?.tariffs.find(t => t.id === 'flux')?.slots ?? []
+
   // Compute savings for all batteries (for comparison table)
   const allSavings = batteries.map(b => ({
     battery: b,
     savings: calcBatterySavings(targetSlots, b.kwh, heatmap?.cells, b.charge_rate_kw, b.efficiency),
+    fluxSavings: fluxSlots.length > 0
+      ? calcBatterySavings(fluxSlots, b.kwh, heatmap?.cells, b.charge_rate_kw, b.efficiency)
+      : null,
   }))
 
   const selectedSavings = allSavings.find(s => s.battery.id === selectedId)?.savings
@@ -250,15 +256,21 @@ export function BatteryOptimiser() {
                   <th className="text-right pb-2 font-medium">+Install</th>
                   <th className="text-right pb-2 font-medium">Monthly saving</th>
                   <th className="text-right pb-2 font-medium">Payback</th>
+                  <th className="text-right pb-2 font-medium">Flux/mo</th>
+                  <th className="text-right pb-2 font-medium">Payback (F)</th>
                   <th className="text-right pb-2 font-medium">Type</th>
                 </tr>
               </thead>
               <tbody>
-                {allSavings.map(({ battery: b, savings: s }) => {
+                {allSavings.map(({ battery: b, savings: s, fluxSavings: fs }) => {
                   const total = b.price_gbp + b.install_gbp
                   const monthlyGbp = s.monthlyPence / 100
                   const paybackMonths = monthlyGbp > 0 ? Math.round(total / monthlyGbp) : null
                   const paybackYears = paybackMonths ? (paybackMonths / 12).toFixed(1) : '—'
+                  const fluxMonthlyGbp = fs ? fs.monthlyPence / 100 : null
+                  const fluxPaybackYears = fluxMonthlyGbp && fluxMonthlyGbp > 0
+                    ? (total / fluxMonthlyGbp / 12).toFixed(1)
+                    : null
                   const isSelected = b.id === selectedId
                   return (
                     <tr
@@ -277,6 +289,12 @@ export function BatteryOptimiser() {
                       <td className="text-right py-2">{b.install_gbp ? `~${penceToPounds(b.install_gbp * 100)}` : '—'}</td>
                       <td className="text-right py-2 text-indigo-400 font-semibold">{penceToPounds(s.monthlyPence)}</td>
                       <td className="text-right py-2">{paybackYears} yrs</td>
+                      <td className="text-right py-2 text-purple-400">
+                        {fs ? penceToPounds(fs.monthlyPence) : '—'}
+                      </td>
+                      <td className="text-right py-2 text-slate-500">
+                        {fluxPaybackYears ? `${fluxPaybackYears} yrs` : '—'}
+                      </td>
                       <td className="text-right py-2">{b.plug_in ? '🔌 plug-in' : '🔧 installed'}</td>
                     </tr>
                   )
