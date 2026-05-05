@@ -265,8 +265,7 @@ export function BatteryOptimiser() {
                 {allSavings.map(({ battery: b, savings: s, fluxSavings: fs }) => {
                   const total = b.price_gbp + b.install_gbp
                   const monthlyGbp = s.monthlyPence / 100
-                  const paybackMonths = monthlyGbp > 0 ? Math.round(total / monthlyGbp) : null
-                  const paybackYears = paybackMonths ? (paybackMonths / 12).toFixed(1) : '—'
+                  const paybackYears = monthlyGbp > 0 ? (total / monthlyGbp / 12).toFixed(1) : '—'
                   const fluxMonthlyGbp = fs ? fs.monthlyPence / 100 : null
                   const fluxPaybackYears = fluxMonthlyGbp && fluxMonthlyGbp > 0
                     ? (total / fluxMonthlyGbp / 12).toFixed(1)
