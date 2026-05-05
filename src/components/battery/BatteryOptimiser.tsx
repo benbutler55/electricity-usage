@@ -182,8 +182,8 @@ export function BatteryOptimiser() {
 
       {selectedSavings.isConsumptionLimited && (
         <div className="mb-4 px-3 py-2 bg-amber-900/20 border border-amber-800/40 rounded-lg text-xs text-amber-400">
-          Based on your typical peak-hour consumption, this battery would shift ~{selectedSavings.effectiveKwh.toFixed(1)} kWh/day — less than its {selected?.kwh} kWh capacity.
-          Theoretical max: {penceToPounds(selectedSavings.theoreticalDailyPence)}/day if fully utilised.
+          Discharge capped by typical consumption in some slots (~{selectedSavings.effectiveKwh.toFixed(1)} kWh/day shifted).
+          Theoretical max without cap: {penceToPounds(selectedSavings.theoreticalDailyPence)}/day.
         </div>
       )}
 
@@ -308,7 +308,7 @@ export function BatteryOptimiser() {
       )}
 
       <p className="text-xs text-slate-600 mt-4">
-        Saving = shifted kWh × (avoided peak rate − charge rate ÷ {ROUND_TRIP_EFFICIENCY * 100}% efficiency) · one cycle/day × 30 days.
+        Charges during cheapest slots; discharges at all slots above break-even (avg charge ÷ {ROUND_TRIP_EFFICIENCY * 100}% efficiency) in time order — multi-cycle if cheap midday slots allow recharging.
         Prices verified {catalog?.prices_verified ?? 'at build time'} — update <code>BATTERY_CATALOG</code> in <code>scripts/fetch_data.py</code> when they change.
       </p>
     </div>
