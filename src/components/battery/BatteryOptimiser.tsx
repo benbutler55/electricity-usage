@@ -75,7 +75,7 @@ export function BatteryOptimiser() {
     ?? calcBatterySavings(targetSlots, selected?.kwh ?? 5, heatmap?.cells)
 
   const scheduled = selected
-    ? scheduleSlots(targetSlots, selected.kwh, selected.charge_rate_kw)
+    ? scheduleSlots(targetSlots, selected.kwh, selected.charge_rate_kw, selected.efficiency, heatmap?.cells)
     : []
 
   const chargeGroups = groupConsecutive(scheduled, 'charge')

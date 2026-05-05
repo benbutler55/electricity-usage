@@ -113,6 +113,7 @@ export function scheduleSlots(
   capacityKwh: number,
   chargeRateKw = CHARGE_RATE_KW,
   efficiency = ROUND_TRIP_EFFICIENCY,
+  heatmapCells?: HeatmapCell[],
 ): ScheduledSlot[] {
   if (slots.length === 0) return []
 
@@ -125,6 +126,9 @@ export function scheduleSlots(
   const dischargeEligible = new Set(
     byTime.filter(s => s.value_inc_vat > breakEven).map(s => s.valid_from),
   )
+  const heatmapMap = heatmapCells?.length
+    ? new Map(heatmapCells.map(c => [`${c.hour}:${c.day_of_week}`, c.avg_kwh]))
+    : null
 
   let soc = 0
   const actionMap = new Map<string, SlotAction>()
@@ -139,7 +143,20 @@ export function scheduleSlots(
       soc > 1e-6 &&
       isPriorityDischarge(p, i, byTime, soc, kwhPerSlot, dischargeEligible)
     ) {
-      soc = Math.max(0, soc - kwhPerSlot)
+      // Use consumption-capped deduction when heatmap available so the visual
+      // matches what calcBatterySavings computes — otherwise full-rate depletion
+      // makes the battery appear empty after 2 slots and hides the remaining
+      // discharge events that still happen across the evening.
+      let deduct = kwhPerSlot
+      if (heatmapMap) {
+        const dt = new Date(slot.valid_from)
+        const hour = Number(
+          new Intl.DateTimeFormat('en-GB', { hour: 'numeric', hour12: false, timeZone: TZ }).format(dt),
+        )
+        const dow = (dt.getDay() + 6) % 7
+        deduct = Math.min(kwhPerSlot, heatmapMap.get(`${hour}:${dow}`) ?? kwhPerSlot)
+      }
+      soc = Math.max(0, soc - deduct)
       actionMap.set(slot.valid_from, 'discharge')
     } else {
       actionMap.set(slot.valid_from, 'normal')
