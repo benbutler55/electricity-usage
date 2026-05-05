@@ -43,14 +43,6 @@ export function cheapestSlots(slots: PriceSlot[], n: number): ChargeWindow[] {
     .map(s => ({ valid_from: s.valid_from, valid_to: s.valid_to, price: s.value_inc_vat }))
 }
 
-/**
- * Derives charge/discharge thresholds from a slot array.
- *
- * maxChargePrice: price of the Nth cheapest slot where N = slots to fill the battery once.
- *   The battery charges at any slot at or below this price.
- * breakEven: avgCharge / efficiency — discharge is only profitable above this line.
- *   Discharging below it costs more to recharge than it saves.
- */
 function getThresholds(
   slots: PriceSlot[],
   capacityKwh: number,
@@ -67,14 +59,46 @@ function getThresholds(
 }
 
 /**
- * Labels every price slot as charge / discharge / normal using SoC simulation.
+ * Discharge priority gate — prevents the battery wasting energy on a mediocre
+ * slot when a more expensive opportunity is still coming later in the day.
  *
- * Charge  = slot price ≤ maxChargePrice AND battery not full.
- * Discharge = slot price > break-even AND battery has energy.
+ * At slot i, we have `soc` kWh available which can cover ceil(soc/kwhPerSlot)
+ * more discharge slots.  We should only discharge NOW if the current price is
+ * among the top-budget remaining discharge-eligible prices.  If a cheaper slot
+ * comes first in time but an expensive one follows, we hold the charge.
+ */
+function isPriorityDischarge(
+  price: number,
+  timeIdx: number,
+  timeSortedSlots: PriceSlot[],
+  soc: number,
+  kwhPerSlot: number,
+  dischargeEligible: Set<string>,
+): boolean {
+  const budget = Math.ceil(soc / kwhPerSlot)
+  if (budget === 0) return false
+  const remaining = timeSortedSlots
+    .slice(timeIdx)                           // current slot onward
+    .filter(s => dischargeEligible.has(s.valid_from))
+    .map(s => s.value_inc_vat)
+    .sort((a, b) => b - a)                   // descending
+    .slice(0, budget)                         // top-budget prices
+  if (remaining.length === 0) return false
+  return price >= remaining[remaining.length - 1]  // current price is competitive
+}
+
+/**
+ * Labels every price slot as charge / discharge / normal using SoC simulation
+ * with look-ahead priority gating on discharge.
  *
- * Processing in time order with SoC tracking means the battery naturally
- * recharges during cheap midday dips and discharges again during the evening
- * peak — multi-cycle falls out of the simulation without explicit modelling.
+ * Charge  = price ≤ maxChargePrice AND battery not full.
+ * Discharge = price > break-even AND battery has energy AND price is among
+ *             the top-K remaining discharge prices (K = ceil(soc / kwhPerSlot)).
+ *
+ * The priority gate prevents discharging at a 19p slot at 2:30pm when 30p+
+ * slots are still coming at 4–7pm.  Multi-cycle falls out naturally: if the
+ * battery empties during a morning peak, cheap midday slots recharge it for
+ * the evening peak.
  */
 export function scheduleSlots(
   slots: PriceSlot[],
@@ -83,41 +107,53 @@ export function scheduleSlots(
   efficiency = ROUND_TRIP_EFFICIENCY,
 ): ScheduledSlot[] {
   if (slots.length === 0) return []
+
+  const byTime = [...slots].sort(
+    (a, b) => new Date(a.valid_from).getTime() - new Date(b.valid_from).getTime(),
+  )
   const { kwhPerSlot, maxChargePrice, breakEven } = getThresholds(
-    slots, capacityKwh, chargeRateKw, efficiency,
+    byTime, capacityKwh, chargeRateKw, efficiency,
   )
   const dischargeEligible = new Set(
-    slots.filter(s => s.value_inc_vat > breakEven).map(s => s.valid_from),
+    byTime.filter(s => s.value_inc_vat > breakEven).map(s => s.valid_from),
   )
+
   let soc = 0
-  return slots.map(slot => {
+  const actionMap = new Map<string, SlotAction>()
+
+  byTime.forEach((slot, i) => {
     const p = slot.value_inc_vat
     if (p <= maxChargePrice && soc < capacityKwh - 1e-6) {
       soc = Math.min(capacityKwh, soc + kwhPerSlot)
-      return { slot, action: 'charge' as SlotAction }
-    }
-    if (dischargeEligible.has(slot.valid_from) && soc > 1e-6) {
+      actionMap.set(slot.valid_from, 'charge')
+    } else if (
+      dischargeEligible.has(slot.valid_from) &&
+      soc > 1e-6 &&
+      isPriorityDischarge(p, i, byTime, soc, kwhPerSlot, dischargeEligible)
+    ) {
       soc = Math.max(0, soc - kwhPerSlot)
-      return { slot, action: 'discharge' as SlotAction }
+      actionMap.set(slot.valid_from, 'discharge')
+    } else {
+      actionMap.set(slot.valid_from, 'normal')
     }
-    return { slot, action: 'normal' as SlotAction }
   })
+
+  // Preserve original input order so the UI timeline renders correctly
+  return slots.map(slot => ({ slot, action: actionMap.get(slot.valid_from) ?? 'normal' }))
 }
 
 const TZ = 'Europe/London'
 
 /**
- * Calculates estimated savings for a battery of given capacity.
+ * Calculates estimated savings using the same SoC + priority-gate simulation.
  *
- * Strategy: charge during all slots at or below maxChargePrice; discharge
- * during all slots above the break-even threshold in time order.  SoC
- * tracking allows multi-cycle operation (recharge → re-discharge).
+ * Two parallel SoC trackers run in one pass:
+ *   realistic — per-slot discharge capped at heatmap consumption
+ *   theoretical — full discharge rate, no consumption cap
  *
- * Pass heatmapCells to cap per-slot discharge at typical consumption for
- * that hour/day-of-week.  Omit for theoretical (SoC-only limited) figures.
- *
- * Charge cost = Σ (kWh stored / efficiency × slot price) — round-trip loss
- * is accounted for on the charge side so discharge revenue is face value.
+ * Charge cost = Σ (kWh stored / efficiency × slot price): round-trip loss
+ * allocated to the charge side, so discharge revenue is face-value kWh × price.
+ * Only the fraction of charge cost that served actual discharge is counted.
  */
 export function calcBatterySavings(
   slots: PriceSlot[],
@@ -133,26 +169,26 @@ export function calcBatterySavings(
   }
   if (slots.length === 0) return empty
 
+  const byTime = [...slots].sort(
+    (a, b) => new Date(a.valid_from).getTime() - new Date(b.valid_from).getTime(),
+  )
   const { kwhPerSlot, avgCharge, maxChargePrice, breakEven } = getThresholds(
-    slots, capacityKwh, chargeRateKw, efficiency,
+    byTime, capacityKwh, chargeRateKw, efficiency,
   )
   const dischargeEligible = new Set(
-    slots.filter(s => s.value_inc_vat > breakEven).map(s => s.valid_from),
+    byTime.filter(s => s.value_inc_vat > breakEven).map(s => s.valid_from),
   )
   const heatmapMap = heatmapCells?.length
     ? new Map(heatmapCells.map(c => [`${c.hour}:${c.day_of_week}`, c.avg_kwh]))
     : null
 
-  // Run two SoC trackers in one pass:
-  //   soc  = realistic (discharge capped by heatmap consumption)
-  //   socT = theoretical (discharge at full rate, no consumption cap)
   let soc = 0, socT = 0
   let chargeKwh = 0, chargeCost = 0, chargeSlotCount = 0
   let disKwh = 0, disSaving = 0
   let disKwhT = 0, disSavingT = 0
   let isConsumptionLimited = false
 
-  for (const slot of slots) {
+  byTime.forEach((slot, i) => {
     const p = slot.value_inc_vat
 
     // Charge
@@ -169,25 +205,23 @@ export function calcBatterySavings(
       }
     }
 
-    // Discharge
+    // Discharge (both trackers use the same priority gate, with their own SoC)
     if (dischargeEligible.has(slot.valid_from)) {
-      // Theoretical
-      if (socT > 1e-6) {
+      if (socT > 1e-6 && isPriorityDischarge(p, i, byTime, socT, kwhPerSlot, dischargeEligible)) {
         const kwh = Math.min(kwhPerSlot, socT)
         socT = Math.max(0, socT - kwh)
         disKwhT += kwh
         disSavingT += kwh * p
       }
 
-      // Realistic (with per-slot consumption cap)
-      if (soc > 1e-6) {
+      if (soc > 1e-6 && isPriorityDischarge(p, i, byTime, soc, kwhPerSlot, dischargeEligible)) {
         let kwh = Math.min(kwhPerSlot, soc)
         if (heatmapMap) {
           const dt = new Date(slot.valid_from)
           const hour = Number(
             new Intl.DateTimeFormat('en-GB', { hour: 'numeric', hour12: false, timeZone: TZ }).format(dt),
           )
-          const dow = (dt.getDay() + 6) % 7   // 0=Mon
+          const dow = (dt.getDay() + 6) % 7
           const consumption = heatmapMap.get(`${hour}:${dow}`) ?? kwhPerSlot
           if (consumption < kwh) {
             kwh = consumption
@@ -199,9 +233,9 @@ export function calcBatterySavings(
         disSaving += kwh * p
       }
     }
-  }
+  })
 
-  // Allocate only the fraction of charge cost that served actual discharge
+  // Allocate only the share of charge cost that served discharged energy
   const allocatedChargeCost = chargeKwh > 0
     ? chargeCost * Math.min(1, disKwh / chargeKwh)
     : 0
