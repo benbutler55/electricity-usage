@@ -17,3 +17,6 @@ public/data/*.json
 # Misc
 .DS_Store
 *.local
+
+# Visual brainstorm sessions
+.superpowers/
