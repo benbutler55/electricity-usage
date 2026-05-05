@@ -165,13 +165,21 @@ export function BatteryOptimiser() {
         <div className="bg-slate-900/50 rounded-lg p-3">
           <p className="text-xs text-slate-500 mb-1">Est. daily saving</p>
           <p className="text-lg font-bold text-indigo-400">{penceToPounds(selectedSavings.dailyPence)}</p>
-          {selectedSavings.isConsumptionLimited && (
-            <p className="text-xs text-amber-500">{selectedSavings.effectiveKwh.toFixed(1)} kWh shifted</p>
+          {selectedSavings.isConsumptionLimited ? (
+            <>
+              <p className="text-xs text-amber-500">{selectedSavings.effectiveKwh.toFixed(1)} kWh shifted</p>
+              <p className="text-xs text-slate-500">max {penceToPounds(selectedSavings.theoreticalDailyPence)}</p>
+            </>
+          ) : (
+            <p className="text-xs text-slate-500">{selectedSavings.effectiveKwh.toFixed(1)} kWh shifted</p>
           )}
         </div>
         <div className="bg-slate-900/50 rounded-lg p-3">
           <p className="text-xs text-slate-500 mb-1">Est. monthly saving</p>
           <p className="text-lg font-bold text-indigo-300">{penceToPounds(selectedSavings.monthlyPence)}</p>
+          {selectedSavings.isConsumptionLimited && (
+            <p className="text-xs text-slate-500">max {penceToPounds(selectedSavings.theoreticalDailyPence * 30)}</p>
+          )}
           {selected && selectedSavings.monthlyPence > 0 && (
             <p className="text-xs text-slate-500">
               payback {Math.round((selected.price_gbp + selected.install_gbp) / (selectedSavings.monthlyPence / 100))} mo
@@ -182,8 +190,8 @@ export function BatteryOptimiser() {
 
       {selectedSavings.isConsumptionLimited && (
         <div className="mb-4 px-3 py-2 bg-amber-900/20 border border-amber-800/40 rounded-lg text-xs text-amber-400">
-          Discharge capped by typical consumption in some slots (~{selectedSavings.effectiveKwh.toFixed(1)} kWh/day shifted).
-          Theoretical max without cap: {penceToPounds(selectedSavings.theoreticalDailyPence)}/day.
+          Saving capped at ~{selectedSavings.effectiveKwh.toFixed(1)} kWh/day by typical peak consumption.
+          Shift high-load appliances (EV, dishwasher, washing machine) into the discharge window to approach the max.
         </div>
       )}
 
