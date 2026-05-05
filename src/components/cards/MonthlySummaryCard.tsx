@@ -29,11 +29,12 @@ export function MonthlySummaryCard() {
         <StatTile
           label="Spent so far"
           value={penceToPounds(current.cost_pence)}
+          sub={`incl. ${data.standing_charge_per_day.toFixed(1)}p/day SC`}
         />
         <StatTile
           label="Projected total"
           value={penceToPounds(current.projected_cost_pence)}
-          sub="based on daily avg"
+          sub="based on daily avg, incl. SC"
         />
         <StatTile
           label="Total usage"

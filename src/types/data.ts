@@ -49,6 +49,7 @@ export interface MonthSummary {
 
 export interface MonthlyData {
   fetched_at: string
+  standing_charge_per_day: number  // p/day inc VAT
   current: MonthSummary
   previous: MonthSummary
 }

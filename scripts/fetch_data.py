@@ -98,6 +98,22 @@ def fetch_account(client: OctopusClient, account_number: str) -> dict:
     }
 
 
+def fetch_standing_charge(client: OctopusClient, product_slug: str, tariff_code: str) -> float:
+    """Return the current standing charge in pence/day inc VAT."""
+    path = f"/products/{product_slug}/electricity-tariffs/{tariff_code}/standing-charges/"
+    slots = client.paginate(path, authenticated=False)
+    if not slots:
+        raise ValueError(f"No standing charge data for {tariff_code}")
+    now = now_utc()
+    active = next(
+        (s for s in slots
+         if s.get("valid_to") is None
+         or datetime.fromisoformat(s["valid_to"].replace("Z", "+00:00")) > now),
+        slots[0],
+    )
+    return active["value_inc_vat"]
+
+
 def fetch_prices(client: OctopusClient, product_slug: str, tariff_code: str) -> list[dict]:
     print("Fetching Agile prices…")
     now = now_utc()
@@ -193,7 +209,7 @@ def _days_in_month(yyyymm: str) -> int:
     return (next_month - datetime(year, month, 1)).days
 
 
-def build_monthly(days: list[dict]) -> dict:
+def build_monthly(days: list[dict], sc_per_day: float) -> dict:
     now_local = datetime.now(LONDON)
     current_month = now_local.strftime("%Y-%m")
     prev_dt = now_local.replace(day=1) - timedelta(days=1)
@@ -207,10 +223,11 @@ def build_monthly(days: list[dict]) -> dict:
                 "days_complete": 0, "days_in_month": _days_in_month(month_str),
                 "projected_cost_pence": 0.0, "avg_daily_cost_pence": 0.0,
             }
-        total_cost = sum(d["cost_pence"] for d in month_days)
+        unit_cost = sum(d["cost_pence"] for d in month_days)
         total_kwh = sum(d["kwh"] for d in month_days)
         complete_days = sum(1 for d in month_days if d["complete"])
         days_in_month = _days_in_month(month_str)
+        total_cost = unit_cost + sc_per_day * complete_days
         avg = total_cost / max(complete_days, 1)
         return {
             "month": month_str,
@@ -395,7 +412,14 @@ def main() -> None:
     except Exception as e:
         print(f"WARNING: could not fetch 48h consumption: {e}", file=sys.stderr)
 
-    # Step 4: Consumption 30d + historical prices → daily, heatmap, monthly
+    # Step 4: Standing charge + consumption 30d + historical prices → daily, heatmap, monthly
+    sc_per_day = 0.0
+    try:
+        sc_per_day = fetch_standing_charge(client, product_slug, tariff_code)
+        print(f"  standing charge: {sc_per_day:.4f}p/day")
+    except Exception as e:
+        print(f"WARNING: could not fetch standing charge: {e}", file=sys.stderr)
+
     try:
         consumption_30d = fetch_consumption(client, mpan, serial, hours=30 * 24)
 
@@ -421,7 +445,11 @@ def main() -> None:
             "cells": build_heatmap(consumption_30d, prices_map),
         })
 
-        write_json("monthly.json", {"fetched_at": fetched_at, **build_monthly(days)})
+        write_json("monthly.json", {
+            "fetched_at": fetched_at,
+            "standing_charge_per_day": round(sc_per_day, 4),
+            **build_monthly(days, sc_per_day),
+        })
     except Exception as e:
         print(f"WARNING: could not fetch 30d data: {e}", file=sys.stderr)
 
