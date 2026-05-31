@@ -1,6 +1,10 @@
 # Dependencies
 node_modules/
 
+# Python bytecode cache
+__pycache__/
+*.py[cod]
+
 # Session memory logs (managed by Claude Code)
 .remember/
 
