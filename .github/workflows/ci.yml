@@ -25,6 +25,9 @@ jobs:
       - name: Type check
         run: npx tsc --noEmit -p tsconfig.app.json
 
+      - name: Test
+        run: npm test
+
   lint-python:
     runs-on: ubuntu-latest
     steps:
