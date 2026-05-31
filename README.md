@@ -10,7 +10,7 @@ Personal electricity usage dashboard for Octopus Energy (Agile tariff), deployed
 - **30-day daily cost chart** with 30-day average reference line
 - **Time-of-day heatmap** — 24h × 7-day SVG grid of average prices; identifies cheapest and most expensive periods across the week
 - **Cost analysis** — peak usage percentage (4–7pm) and estimated daily saving from load-shifting
-- **Battery optimiser** — selectable battery sizes (1.5 / 5 / 7.5 / 10 kWh); shows optimal charge and discharge windows from tomorrow's Agile prices, estimated daily/monthly savings capped by your actual typical peak consumption, and theoretical maximum
+- **Battery optimiser** — selectable battery products; shows optimal charge and discharge windows from tomorrow's Agile prices, estimated daily/monthly savings capped by your actual typical peak consumption, and theoretical maximum. The comparison table scores every battery on Agile vs **Octopus Go** (a no-solar overnight tariff) over one representative full day so the figures stay comparable
 - **Monthly summary** — current month spend vs previous month with projected full-month total
 
 ## Architecture
@@ -97,8 +97,16 @@ npm run dev
 
 Data files from the Python fetch are served by the Vite dev server from `public/data/`.
 
+### Tests
+
+```bash
+npm test        # vitest run — unit tests for the battery savings engine (src/lib/*.test.ts)
+```
+
 ## Notes
 
 - **Meter data lag**: Smart meter readings flow through the DCC and arrive at Octopus ~24–48h after the consumption period. The dashboard handles this gracefully — consumption sections show available data and label the lag.
-- **Agile price publication**: Tomorrow's half-hourly prices are published daily between 4pm and 8pm. The battery optimiser shows tomorrow's schedule once available, falling back to today's remaining prices.
+- **Agile price publication**: Tomorrow's half-hourly prices are published daily between 4pm and 8pm. The battery optimiser's live *schedule* shows tomorrow once available, falling back to today's remaining prices.
 - **Battery savings formula**: `saving = effectiveKwh × (avgPeakRate − avgChargeRate ÷ efficiency)`. Effective kWh is capped at your typical peak-hour consumption (from the heatmap) to avoid over-stating savings for batteries larger than your actual peak load.
+- **Savings comparison window**: the comparison table scores every tariff over one *representative complete day* (the latest day with full price coverage), not the live partial-day window. This keeps Agile and Go comparable and stops the figures collapsing to £0.00 before tomorrow's Agile prices publish.
+- **Slot duration**: energy moved per slot is derived from each slot's actual `valid_from`→`valid_to` span, so fixed tariffs that return multi-hour rate periods (Go) are measured correctly rather than as if every slot were 30 minutes.
