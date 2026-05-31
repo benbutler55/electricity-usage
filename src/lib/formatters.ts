@@ -19,6 +19,8 @@ const monthFormatter = new Intl.DateTimeFormat('en-GB', {
   year: 'numeric',
 })
 
+const isoDateFormatter = new Intl.DateTimeFormat('en-CA', { timeZone: TZ })
+
 export function formatTime(isoZ: string): string {
   return timeFormatter.format(new Date(isoZ))
 }
@@ -49,5 +51,5 @@ export function formatKwh(kwh: number): string {
 }
 
 export function localDateString(isoZ: string): string {
-  return new Intl.DateTimeFormat('en-CA', { timeZone: TZ }).format(new Date(isoZ))
+  return isoDateFormatter.format(new Date(isoZ))
 }

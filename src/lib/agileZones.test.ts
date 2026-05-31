@@ -5,6 +5,7 @@ import {
   calcBatterySavings,
   representativeComparisonDay,
   sliceToDay,
+  comparisonSavings,
 } from './agileZones'
 
 // --- helpers -------------------------------------------------------------
@@ -23,20 +24,10 @@ function slot(startLocal: string, hours: number, price: number): PriceSlot {
 
 /** A full London day of 48 half-hour Agile slots. priceFn(hourOfDay) → p/kWh. */
 function fullDay(londonDate: string, priceFn: (hour: number) => number): PriceSlot[] {
-  const slots: PriceSlot[] = []
-  const start = new Date(`${londonDate}T00:00:00+01:00`)
-  for (let i = 0; i < 48; i++) {
-    const from = new Date(start.getTime() + i * 30 * 60_000)
-    const to = new Date(from.getTime() + 30 * 60_000)
-    const hour = Math.floor(i / 2)
-    slots.push({
-      valid_from: from.toISOString(),
-      valid_to: to.toISOString(),
-      value_exc_vat: priceFn(hour),
-      value_inc_vat: priceFn(hour),
-    })
-  }
-  return slots
+  const start = new Date(`${londonDate}T00:00:00+01:00`).getTime()
+  return Array.from({ length: 48 }, (_, i) =>
+    slot(new Date(start + i * 30 * 60_000).toISOString(), 0.5, priceFn(Math.floor(i / 2))),
+  )
 }
 
 // cheap overnight (00:00–05:00), expensive evening peak (16:00–20:00)
@@ -112,6 +103,23 @@ describe('representativeComparisonDay', () => {
 
   it('returns null for empty input', () => {
     expect(representativeComparisonDay([])).toBeNull()
+  })
+})
+
+describe('comparisonSavings', () => {
+  const complete = fullDay('2026-05-30', dayPrice)
+
+  it('scores over the representative window, matching a manual slice', () => {
+    const win = representativeComparisonDay(complete)!
+    const viaHelper = comparisonSavings(complete, win, 5, undefined, 2.5, 0.92)
+    const manual = calcBatterySavings(sliceToDay(complete, win.startMs, win.endMs), 5, undefined, 2.5, 0.92)
+    expect(viaHelper.monthlyPence).toBeCloseTo(manual.monthlyPence, 5)
+  })
+
+  it('falls back to the full slot array when the window is null', () => {
+    const viaHelper = comparisonSavings(complete, null, 5, undefined, 2.5, 0.92)
+    const manual = calcBatterySavings(complete, 5, undefined, 2.5, 0.92)
+    expect(viaHelper.monthlyPence).toBeCloseTo(manual.monthlyPence, 5)
   })
 })
 

@@ -1,4 +1,5 @@
 import type { PriceSlot, HeatmapCell } from '../types/data'
+import { localDateString } from './formatters'
 
 export const PRICE_THRESHOLDS = {
   negative: 0,
@@ -11,6 +12,10 @@ export const ROUND_TRIP_EFFICIENCY = 0.92
 
 const TZ = 'Europe/London'
 const HALF_HOUR_MS = 30 * 60 * 1000
+// Reused across hot loops — constructing an Intl formatter per call is costly.
+const LONDON_HOUR_FMT = new Intl.DateTimeFormat('en-GB', { hour: 'numeric', hour12: false, timeZone: TZ })
+
+const ms = (iso: string): number => new Date(iso).getTime()
 
 export type SlotAction = 'charge' | 'discharge' | 'normal'
 
@@ -36,6 +41,11 @@ export interface ChargeWindow {
   price: number
 }
 
+export interface ComparisonWindow {
+  startMs: number
+  endMs: number
+}
+
 /**
  * Duration of a price slot in hours, derived from valid_from→valid_to.
  *
@@ -45,16 +55,14 @@ export interface ChargeWindow {
  * the timestamps are missing or non-positive.
  */
 export function slotDurationHours(slot: PriceSlot): number {
-  const h = (new Date(slot.valid_to).getTime() - new Date(slot.valid_from).getTime()) / 3_600_000
+  const h = (ms(slot.valid_to) - ms(slot.valid_from)) / 3_600_000
   return Number.isFinite(h) && h > 0 ? h : 0.5
 }
 
 /** London (hour, day-of-week Mon=0) for an instant. */
-function londonHourDow(ms: number): { hour: number; dow: number } {
-  const dt = new Date(ms)
-  const hour = Number(
-    new Intl.DateTimeFormat('en-GB', { hour: 'numeric', hour12: false, timeZone: TZ }).format(dt),
-  ) % 24
+function londonHourDow(epochMs: number): { hour: number; dow: number } {
+  const dt = new Date(epochMs)
+  const hour = Number(LONDON_HOUR_FMT.format(dt)) % 24
   const dow = (dt.getDay() + 6) % 7
   return { hour, dow }
 }
@@ -66,8 +74,8 @@ function londonHourDow(ms: number): { hour: number; dow: number } {
  * half-hours so a long discharge window can shift more than one cell's worth.
  */
 function slotConsumption(slot: PriceSlot, heatmapMap: Map<string, number>, fallback: number): number {
-  const from = new Date(slot.valid_from).getTime()
-  const to = new Date(slot.valid_to).getTime()
+  const from = ms(slot.valid_from)
+  const to = ms(slot.valid_to)
   if (!(to > from)) {
     const { hour, dow } = londonHourDow(from)
     return heatmapMap.get(`${hour}:${dow}`) ?? fallback
@@ -126,6 +134,28 @@ function getThresholds(
 }
 
 /**
+ * Shared setup for both SoC simulations: time-sorted slots, charge/break-even
+ * thresholds, the set of discharge-eligible slot keys, and the heatmap lookup.
+ */
+function prepareSimulation(
+  slots: PriceSlot[],
+  capacityKwh: number,
+  chargeRateKw: number,
+  efficiency: number,
+  heatmapCells?: HeatmapCell[],
+) {
+  const byTime = [...slots].sort((a, b) => ms(a.valid_from) - ms(b.valid_from))
+  const thresholds = getThresholds(byTime, capacityKwh, chargeRateKw, efficiency)
+  const dischargeEligible = new Set(
+    byTime.filter(s => s.value_inc_vat > thresholds.breakEven).map(s => s.valid_from),
+  )
+  const heatmapMap = heatmapCells?.length
+    ? new Map(heatmapCells.map(c => [`${c.hour}:${c.day_of_week}`, c.avg_kwh]))
+    : null
+  return { byTime, ...thresholds, dischargeEligible, heatmapMap }
+}
+
+/**
  * Discharge priority gate — prevents the battery wasting energy on a mediocre
  * slot when a more expensive opportunity is still coming later in the day.
  *
@@ -181,16 +211,8 @@ export function scheduleSlots(
 ): ScheduledSlot[] {
   if (slots.length === 0) return []
 
-  const byTime = [...slots].sort(
-    (a, b) => new Date(a.valid_from).getTime() - new Date(b.valid_from).getTime(),
-  )
-  const { maxChargePrice, breakEven } = getThresholds(byTime, capacityKwh, chargeRateKw, efficiency)
-  const dischargeEligible = new Set(
-    byTime.filter(s => s.value_inc_vat > breakEven).map(s => s.valid_from),
-  )
-  const heatmapMap = heatmapCells?.length
-    ? new Map(heatmapCells.map(c => [`${c.hour}:${c.day_of_week}`, c.avg_kwh]))
-    : null
+  const { byTime, maxChargePrice, dischargeEligible, heatmapMap } =
+    prepareSimulation(slots, capacityKwh, chargeRateKw, efficiency, heatmapCells)
 
   let soc = 0
   const actionMap = new Map<string, SlotAction>()
@@ -253,18 +275,8 @@ export function calcBatterySavings(
   }
   if (slots.length === 0) return empty
 
-  const byTime = [...slots].sort(
-    (a, b) => new Date(a.valid_from).getTime() - new Date(b.valid_from).getTime(),
-  )
-  const { avgCharge, maxChargePrice, breakEven } = getThresholds(
-    byTime, capacityKwh, chargeRateKw, efficiency,
-  )
-  const dischargeEligible = new Set(
-    byTime.filter(s => s.value_inc_vat > breakEven).map(s => s.valid_from),
-  )
-  const heatmapMap = heatmapCells?.length
-    ? new Map(heatmapCells.map(c => [`${c.hour}:${c.day_of_week}`, c.avg_kwh]))
-    : null
+  const { byTime, avgCharge, maxChargePrice, dischargeEligible, heatmapMap } =
+    prepareSimulation(slots, capacityKwh, chargeRateKw, efficiency, heatmapCells)
 
   let soc = 0, socT = 0
   let chargeKwh = 0, chargeCost = 0, chargeSlotCount = 0
@@ -338,13 +350,6 @@ export function calcBatterySavings(
   }
 }
 
-/** London calendar-day key ("YYYY-MM-DD") for an ISO timestamp. */
-export function londonDayKey(iso: string): string {
-  return new Intl.DateTimeFormat('en-CA', {
-    year: 'numeric', month: '2-digit', day: '2-digit', timeZone: TZ,
-  }).format(new Date(iso))
-}
-
 /**
  * Picks a stable, fully-covered London day to score every tariff over, so the
  * battery comparison is apples-to-apples and never collapses to £0.00 on a
@@ -352,24 +357,26 @@ export function londonDayKey(iso: string): string {
  * day) — that's tomorrow once Agile publishes it, otherwise the most recent
  * complete day already in the data.  Window is [day 00:00, next 00:00) in UTC ms.
  */
-export function representativeComparisonDay(
-  agileSlots: PriceSlot[],
-): { startMs: number; endMs: number } | null {
+export function representativeComparisonDay(agileSlots: PriceSlot[]): ComparisonWindow | null {
   if (agileSlots.length === 0) return null
   const byDay = new Map<string, PriceSlot[]>()
   for (const s of agileSlots) {
-    const key = londonDayKey(s.valid_from)
-    const list = byDay.get(key)
-    if (list) list.push(s)
-    else byDay.set(key, [s])
+    const key = localDateString(s.valid_from)
+    const list = byDay.get(key) ?? []
+    list.push(s)
+    byDay.set(key, list)
   }
   const keys = [...byDay.keys()].sort()
   for (let i = keys.length - 1; i >= 0; i--) {
     const daySlots = byDay.get(keys[i])!
     const coveredHours = daySlots.reduce((a, s) => a + slotDurationHours(s), 0)
     if (coveredHours >= 23) {
-      const startMs = Math.min(...daySlots.map(s => new Date(s.valid_from).getTime()))
-      const endMs = Math.max(...daySlots.map(s => new Date(s.valid_to).getTime()))
+      let startMs = Infinity
+      let endMs = -Infinity
+      for (const s of daySlots) {
+        startMs = Math.min(startMs, ms(s.valid_from))
+        endMs = Math.max(endMs, ms(s.valid_to))
+      }
       return { startMs, endMs }
     }
   }
@@ -383,10 +390,8 @@ export function representativeComparisonDay(
 export function sliceToDay(slots: PriceSlot[], startMs: number, endMs: number): PriceSlot[] {
   const out: PriceSlot[] = []
   for (const s of slots) {
-    const from = new Date(s.valid_from).getTime()
-    const to = new Date(s.valid_to).getTime()
-    const clipFrom = Math.max(from, startMs)
-    const clipTo = Math.min(to, endMs)
+    const clipFrom = Math.max(ms(s.valid_from), startMs)
+    const clipTo = Math.min(ms(s.valid_to), endMs)
     if (clipTo <= clipFrom) continue
     out.push({
       ...s,
@@ -395,6 +400,24 @@ export function sliceToDay(slots: PriceSlot[], startMs: number, endMs: number): 
     })
   }
   return out
+}
+
+/**
+ * Savings for one tariff scored over the shared comparison window, so every
+ * tariff is measured the same way.  When no complete day is available
+ * (`window` is null) all tariffs fall back identically to their full slot
+ * array, keeping the comparison coherent rather than mixing horizons.
+ */
+export function comparisonSavings(
+  slots: PriceSlot[],
+  window: ComparisonWindow | null,
+  capacityKwh: number,
+  heatmapCells?: HeatmapCell[],
+  chargeRateKw = CHARGE_RATE_KW,
+  efficiency = ROUND_TRIP_EFFICIENCY,
+): BatterySavings {
+  const scoped = window ? sliceToDay(slots, window.startMs, window.endMs) : slots
+  return calcBatterySavings(scoped, capacityKwh, heatmapCells, chargeRateKw, efficiency)
 }
 
 /**

@@ -6,7 +6,7 @@ import { LoadingSpinner } from '../shared/LoadingSpinner'
 import { ErrorBanner } from '../shared/ErrorBanner'
 import { formatTime, penceToPounds } from '../../lib/formatters'
 import { tierColour } from '../../lib/priceColour'
-import { scheduleSlots, calcBatterySavings, representativeComparisonDay, sliceToDay, ROUND_TRIP_EFFICIENCY } from '../../lib/agileZones'
+import { scheduleSlots, comparisonSavings, representativeComparisonDay, ROUND_TRIP_EFFICIENCY } from '../../lib/agileZones'
 
 const ACTION_COLOUR: Record<string, string> = {
   charge: '#22c55e',
@@ -64,23 +64,21 @@ export function BatteryOptimiser() {
 
   // Savings are scored over one stable, fully-covered day so the comparison is
   // apples-to-apples across tariffs and never collapses to £0.00 on a partial
-  // day (e.g. before tomorrow's Agile prices publish).  Agile and Go are sliced
-  // to the same representative day; Go's multi-hour rate periods are clipped to it.
+  // day (e.g. before tomorrow's Agile prices publish).  comparisonSavings slices
+  // each tariff to this shared window (clipping Go's multi-hour rate periods).
   const cmpWindow = representativeComparisonDay(prices.slots)
-  const agileCmp = cmpWindow ? sliceToDay(prices.slots, cmpWindow.startMs, cmpWindow.endMs) : targetSlots
-  const goCmp = cmpWindow ? sliceToDay(goSlotsRaw, cmpWindow.startMs, cmpWindow.endMs) : goSlotsRaw
 
   // Compute savings for all batteries (for comparison table)
   const allSavings = batteries.map(b => ({
     battery: b,
-    savings: calcBatterySavings(agileCmp, b.kwh, heatmap?.cells, b.charge_rate_kw, b.efficiency),
-    goSavings: goCmp.length > 0
-      ? calcBatterySavings(goCmp, b.kwh, heatmap?.cells, b.charge_rate_kw, b.efficiency)
+    savings: comparisonSavings(prices.slots, cmpWindow, b.kwh, heatmap?.cells, b.charge_rate_kw, b.efficiency),
+    goSavings: goSlotsRaw.length > 0
+      ? comparisonSavings(goSlotsRaw, cmpWindow, b.kwh, heatmap?.cells, b.charge_rate_kw, b.efficiency)
       : null,
   }))
 
   const selectedSavings = allSavings.find(s => s.battery.id === selectedId)?.savings
-    ?? calcBatterySavings(agileCmp, selected?.kwh ?? 5, heatmap?.cells, selected?.charge_rate_kw, selected?.efficiency)
+    ?? comparisonSavings(prices.slots, cmpWindow, selected?.kwh ?? 5, heatmap?.cells, selected?.charge_rate_kw, selected?.efficiency)
 
   const scheduled = selected
     ? scheduleSlots(targetSlots, selected.kwh, selected.charge_rate_kw, selected.efficiency, heatmap?.cells)
