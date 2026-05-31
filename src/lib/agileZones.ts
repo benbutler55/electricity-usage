@@ -384,6 +384,41 @@ export function representativeComparisonDay(agileSlots: PriceSlot[]): Comparison
 }
 
 /**
+ * Splits each slot into contiguous 30-minute sub-slots carrying the parent's
+ * price.  Agile already arrives as half-hours (returned effectively unchanged),
+ * but fixed tariffs like Go return coarse multi-hour rate periods.  Expanding
+ * them onto a uniform 30-min grid lets the optimiser timeline and window
+ * grouping render Go exactly like Agile, with no special-casing downstream —
+ * and it stays energy-equivalent because scheduleSlots/calcBatterySavings scale
+ * by each slot's real duration.
+ *
+ * Edge case: a slot whose duration is not a clean multiple of 30 min (or a
+ * trailing remainder) should still be represented so no time/energy is dropped.
+ */
+export function expandToHalfHours(slots: PriceSlot[]): PriceSlot[] {
+  const out: PriceSlot[] = []
+  for (const s of slots) {
+    const from = ms(s.valid_from)
+    const to = ms(s.valid_to)
+    if (!(to > from)) {
+      out.push(s)
+      continue
+    }
+    let t = from
+    while (t < to) {
+      const next = Math.min(t + HALF_HOUR_MS, to)   // clip the final step to `to`
+      out.push({
+        ...s,
+        valid_from: new Date(t).toISOString(),
+        valid_to: new Date(next).toISOString(),
+      })
+      t = next
+    }
+  }
+  return out
+}
+
+/**
  * Returns slots overlapping [startMs, endMs), each clipped to that window so a
  * fixed tariff's multi-day rate period contributes only its in-day duration.
  */

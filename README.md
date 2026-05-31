@@ -10,7 +10,7 @@ Personal electricity usage dashboard for Octopus Energy (Agile tariff), deployed
 - **30-day daily cost chart** with 30-day average reference line
 - **Time-of-day heatmap** — 24h × 7-day SVG grid of average prices; identifies cheapest and most expensive periods across the week
 - **Cost analysis** — peak usage percentage (4–7pm) and estimated daily saving from load-shifting
-- **Battery optimiser** — selectable battery products; shows optimal charge and discharge windows from tomorrow's Agile prices, estimated daily/monthly savings capped by your actual typical peak consumption, and theoretical maximum. The comparison table scores every battery on Agile vs **Octopus Go** (a no-solar overnight tariff) over one representative full day so the figures stay comparable
+- **Battery optimiser** — selectable battery products; shows a price timeline and optimal charge/discharge windows for **both Agile and Octopus Go** over the same day so the schedules can be compared side by side (Go's coarse rate periods are normalised onto Agile's half-hour grid), estimated daily/monthly savings capped by your actual typical peak consumption, and theoretical maximum. The comparison table scores every battery on Agile vs **Octopus Go** (a no-solar overnight tariff) over one representative full day so the figures stay comparable
 - **Monthly summary** — current month spend vs previous month with projected full-month total
 
 ## Architecture

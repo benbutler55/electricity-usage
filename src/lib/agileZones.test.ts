@@ -6,6 +6,7 @@ import {
   representativeComparisonDay,
   sliceToDay,
   comparisonSavings,
+  expandToHalfHours,
 } from './agileZones'
 
 // --- helpers -------------------------------------------------------------
@@ -120,6 +121,48 @@ describe('comparisonSavings', () => {
     const viaHelper = comparisonSavings(complete, null, 5, undefined, 2.5, 0.92)
     const manual = calcBatterySavings(complete, 5, undefined, 2.5, 0.92)
     expect(viaHelper.monthlyPence).toBeCloseTo(manual.monthlyPence, 5)
+  })
+})
+
+describe('expandToHalfHours', () => {
+  it('leaves 30-min Agile slots unchanged in count and price', () => {
+    const day = fullDay('2026-05-30', dayPrice)
+    const expanded = expandToHalfHours(day)
+    expect(expanded).toHaveLength(day.length)
+    expect(expanded.map(s => s.value_inc_vat)).toEqual(day.map(s => s.value_inc_vat))
+  })
+
+  it('splits a multi-hour Go rate-period into contiguous half-hours of the same price', () => {
+    const go = [slot('2026-05-30T00:30:00+01:00', 5, 9.5)] // 5h night rate
+    const expanded = expandToHalfHours(go)
+    expect(expanded).toHaveLength(10) // 5h / 0.5h
+    expect(expanded.every(s => s.value_inc_vat === 9.5)).toBe(true)
+    // contiguous: each slot's end equals the next slot's start
+    for (let i = 1; i < expanded.length; i++) {
+      expect(expanded[i].valid_from).toBe(expanded[i - 1].valid_to)
+    }
+    // spans exactly the original period
+    expect(expanded[0].valid_from).toBe(go[0].valid_from)
+    expect(expanded[expanded.length - 1].valid_to).toBe(go[0].valid_to)
+  })
+
+  it('preserves a trailing remainder shorter than 30 min', () => {
+    const odd = [slot('2026-05-30T00:00:00+01:00', 1.25, 12)] // 1h15m → 2×30m + 15m
+    const expanded = expandToHalfHours(odd)
+    expect(expanded).toHaveLength(3)
+    const last = expanded[expanded.length - 1]
+    expect(slotDurationHours(last)).toBeCloseTo(0.25)
+    expect(last.valid_to).toBe(odd[0].valid_to)
+  })
+
+  it('keeps total energy equivalent (same savings as the coarse slots)', () => {
+    const coarse = [
+      slot('2026-05-30T00:00:00+01:00', 4, 5),
+      slot('2026-05-30T16:00:00+01:00', 4, 30),
+    ]
+    const fine = calcBatterySavings(expandToHalfHours(coarse), 4, undefined, 2, 1)
+    const raw = calcBatterySavings(coarse, 4, undefined, 2, 1)
+    expect(fine.dailyPence).toBeCloseTo(raw.dailyPence, 1)
   })
 })
 

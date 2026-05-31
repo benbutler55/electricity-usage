@@ -6,7 +6,8 @@ import { LoadingSpinner } from '../shared/LoadingSpinner'
 import { ErrorBanner } from '../shared/ErrorBanner'
 import { formatTime, penceToPounds } from '../../lib/formatters'
 import { tierColour } from '../../lib/priceColour'
-import { scheduleSlots, comparisonSavings, representativeComparisonDay, ROUND_TRIP_EFFICIENCY } from '../../lib/agileZones'
+import { scheduleSlots, comparisonSavings, representativeComparisonDay, sliceToDay, expandToHalfHours, ROUND_TRIP_EFFICIENCY } from '../../lib/agileZones'
+import type { ScheduledSlot } from '../../lib/agileZones'
 
 const ACTION_COLOUR: Record<string, string> = {
   charge: '#22c55e',
@@ -35,6 +36,81 @@ function groupConsecutive(scheduled: ReturnType<typeof scheduleSlots>, action: s
   }
   groups.push({ from: current.from, to: current.to, avgPrice: current.prices.reduce((a, b) => a + b, 0) / current.prices.length })
   return groups
+}
+
+/**
+ * Price timeline + charge/discharge window lists for one tariff's schedule.
+ * Rendered once per tariff (Agile, Go) so both look identical — the schedule is
+ * already normalised to half-hour slots upstream, so this stays tariff-agnostic.
+ */
+function ScheduleView({ title, scheduled }: { title: string; scheduled: ScheduledSlot[] }) {
+  const chargeGroups = groupConsecutive(scheduled, 'charge')
+  const dischargeGroups = groupConsecutive(scheduled, 'discharge')
+
+  const prices = scheduled.map(s => s.slot.value_inc_vat)
+  const minP = prices.length ? Math.min(...prices) : 0
+  const maxP = prices.length ? Math.max(...prices) : 1
+  const priceRange = maxP - minP || 1
+
+  return (
+    <div className="mb-6">
+      <p className="text-xs font-semibold text-slate-300 uppercase tracking-wide mb-2">{title}</p>
+
+      {/* Price timeline */}
+      <div className="mb-4">
+        <div className="flex gap-0.5 h-16 items-end">
+          {scheduled.map(({ slot, action }, i) => {
+            const heightPct = 20 + ((slot.value_inc_vat - minP) / priceRange) * 80
+            const colour = action !== 'normal' ? ACTION_COLOUR[action] : tierColour(slot.value_inc_vat)
+            return (
+              <div key={i} className="flex-1 rounded-sm cursor-default"
+                style={{ height: `${heightPct}%`, backgroundColor: colour, opacity: action === 'normal' ? 0.4 : 0.9 }}
+                title={`${formatTime(slot.valid_from)} · ${slot.value_inc_vat.toFixed(1)}p · ${ACTION_LABEL[action]}`}
+              />
+            )
+          })}
+        </div>
+        <div className="flex justify-between mt-1 text-xs text-slate-600">
+          {[0, 6, 12, 18, 23].map(i => (
+            <span key={i}>{scheduled[Math.min(i * 2, scheduled.length - 1)]
+              ? formatTime(scheduled[Math.min(i * 2, scheduled.length - 1)].slot.valid_from) : ''}</span>
+          ))}
+        </div>
+      </div>
+
+      <div className="flex gap-4 mb-5 text-xs text-slate-400">
+        <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm bg-green-500" /> Charge window</span>
+        <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm bg-red-500" /> Discharge window</span>
+        <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm bg-slate-600" /> Grid as normal</span>
+      </div>
+
+      {/* Charge/discharge times */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div>
+          <p className="text-xs font-medium text-green-400 uppercase tracking-wide mb-2">Charge windows</p>
+          {chargeGroups.length === 0
+            ? <p className="text-xs text-slate-500">No data</p>
+            : chargeGroups.map((g, i) => (
+              <div key={i} className="flex justify-between items-center py-1.5 border-b border-slate-700/50">
+                <span className="text-sm text-slate-300">{formatTime(g.from)} – {formatTime(g.to)}</span>
+                <span className="text-sm font-semibold text-green-400">{g.avgPrice.toFixed(1)}p/kWh</span>
+              </div>
+            ))}
+        </div>
+        <div>
+          <p className="text-xs font-medium text-red-400 uppercase tracking-wide mb-2">Avoid grid (discharge)</p>
+          {dischargeGroups.length === 0
+            ? <p className="text-xs text-slate-500">No data</p>
+            : dischargeGroups.map((g, i) => (
+              <div key={i} className="flex justify-between items-center py-1.5 border-b border-slate-700/50">
+                <span className="text-sm text-slate-300">{formatTime(g.from)} – {formatTime(g.to)}</span>
+                <span className="text-sm font-semibold text-red-400">{g.avgPrice.toFixed(1)}p/kWh</span>
+              </div>
+            ))}
+        </div>
+      </div>
+    </div>
+  )
 }
 
 export function BatteryOptimiser() {
@@ -84,12 +160,17 @@ export function BatteryOptimiser() {
     ? scheduleSlots(targetSlots, selected.kwh, selected.charge_rate_kw, selected.efficiency, heatmap?.cells)
     : []
 
-  const chargeGroups = groupConsecutive(scheduled, 'charge')
-  const dischargeGroups = groupConsecutive(scheduled, 'discharge')
-
-  const minP = targetSlots.length ? Math.min(...targetSlots.map(s => s.value_inc_vat)) : 0
-  const maxP = targetSlots.length ? Math.max(...targetSlots.map(s => s.value_inc_vat)) : 1
-  const priceRange = maxP - minP || 1
+  // Go schedule, over the SAME window as Agile so the two timelines line up.
+  // Go's coarse multi-hour rate periods are clipped to the window then expanded
+  // onto a 30-min grid, so it flows through scheduleSlots exactly like Agile.
+  const winStart = targetSlots.length ? new Date(targetSlots[0].valid_from).getTime() : 0
+  const winEnd = targetSlots.length ? new Date(targetSlots[targetSlots.length - 1].valid_to).getTime() : 0
+  const goTarget = selected && goSlotsRaw.length
+    ? expandToHalfHours(sliceToDay(goSlotsRaw, winStart, winEnd))
+    : []
+  const goScheduled = selected && goTarget.length
+    ? scheduleSlots(goTarget, selected.kwh, selected.charge_rate_kw, selected.efficiency, heatmap?.cells)
+    : []
 
   return (
     <div className="bg-slate-800 rounded-xl p-5 border border-slate-700">
@@ -201,60 +282,10 @@ export function BatteryOptimiser() {
         </div>
       )}
 
-      {/* Price timeline */}
-      <div className="mb-4">
-        <p className="text-xs text-slate-500 mb-2">Price timeline</p>
-        <div className="flex gap-0.5 h-16 items-end">
-          {scheduled.map(({ slot, action }, i) => {
-            const heightPct = 20 + ((slot.value_inc_vat - minP) / priceRange) * 80
-            const colour = action !== 'normal' ? ACTION_COLOUR[action] : tierColour(slot.value_inc_vat)
-            return (
-              <div key={i} className="flex-1 rounded-sm cursor-default"
-                style={{ height: `${heightPct}%`, backgroundColor: colour, opacity: action === 'normal' ? 0.4 : 0.9 }}
-                title={`${formatTime(slot.valid_from)} · ${slot.value_inc_vat.toFixed(1)}p · ${ACTION_LABEL[action]}`}
-              />
-            )
-          })}
-        </div>
-        <div className="flex justify-between mt-1 text-xs text-slate-600">
-          {[0, 6, 12, 18, 23].map(i => (
-            <span key={i}>{scheduled[Math.min(i * 2, scheduled.length - 1)]
-              ? formatTime(scheduled[Math.min(i * 2, scheduled.length - 1)].slot.valid_from) : ''}</span>
-          ))}
-        </div>
-      </div>
-
-      <div className="flex gap-4 mb-5 text-xs text-slate-400">
-        <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm bg-green-500" /> Charge window</span>
-        <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm bg-red-500" /> Discharge window</span>
-        <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm bg-slate-600" /> Grid as normal</span>
-      </div>
-
-      {/* Charge/discharge times */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
-        <div>
-          <p className="text-xs font-medium text-green-400 uppercase tracking-wide mb-2">Charge windows</p>
-          {chargeGroups.length === 0
-            ? <p className="text-xs text-slate-500">No data</p>
-            : chargeGroups.map((g, i) => (
-              <div key={i} className="flex justify-between items-center py-1.5 border-b border-slate-700/50">
-                <span className="text-sm text-slate-300">{formatTime(g.from)} – {formatTime(g.to)}</span>
-                <span className="text-sm font-semibold text-green-400">{g.avgPrice.toFixed(1)}p/kWh</span>
-              </div>
-            ))}
-        </div>
-        <div>
-          <p className="text-xs font-medium text-red-400 uppercase tracking-wide mb-2">Avoid grid (discharge)</p>
-          {dischargeGroups.length === 0
-            ? <p className="text-xs text-slate-500">No data</p>
-            : dischargeGroups.map((g, i) => (
-              <div key={i} className="flex justify-between items-center py-1.5 border-b border-slate-700/50">
-                <span className="text-sm text-slate-300">{formatTime(g.from)} – {formatTime(g.to)}</span>
-                <span className="text-sm font-semibold text-red-400">{g.avgPrice.toFixed(1)}p/kWh</span>
-              </div>
-            ))}
-        </div>
-      </div>
+      {/* Per-tariff schedule: timeline + charge/discharge windows */}
+      <p className="text-xs text-slate-500 mb-2">Price timeline (charge / discharge windows)</p>
+      <ScheduleView title="Agile" scheduled={scheduled} />
+      {goScheduled.length > 0 && <ScheduleView title="Octopus Go" scheduled={goScheduled} />}
 
       {/* Comparison table */}
       {batteries.length > 0 && (
