@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ruff check scripts/*)",
+      "Bash(curl -s https://benbutler55.github.io/electricity-usage/*)",
+      "Bash(npm test)",
+      "Bash(npm run lint)"
+    ]
+  }
+}
