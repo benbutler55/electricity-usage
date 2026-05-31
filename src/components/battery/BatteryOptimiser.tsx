@@ -60,14 +60,14 @@ export function BatteryOptimiser() {
   const batteries: BatteryProduct[] = catalog?.batteries ?? []
   const selected = batteries.find(b => b.id === selectedId) ?? batteries[0]
 
-  const fluxSlots = tariffComparison?.tariffs.find(t => t.id === 'flux')?.slots ?? []
+  const goSlots = tariffComparison?.tariffs.find(t => t.id === 'go')?.slots ?? []
 
   // Compute savings for all batteries (for comparison table)
   const allSavings = batteries.map(b => ({
     battery: b,
     savings: calcBatterySavings(targetSlots, b.kwh, heatmap?.cells, b.charge_rate_kw, b.efficiency),
-    fluxSavings: fluxSlots.length > 0
-      ? calcBatterySavings(fluxSlots, b.kwh, heatmap?.cells, b.charge_rate_kw, b.efficiency)
+    goSavings: goSlots.length > 0
+      ? calcBatterySavings(goSlots, b.kwh, heatmap?.cells, b.charge_rate_kw, b.efficiency)
       : null,
   }))
 
@@ -264,19 +264,19 @@ export function BatteryOptimiser() {
                   <th className="text-right pb-2 font-medium">+Install</th>
                   <th className="text-right pb-2 font-medium">Monthly saving</th>
                   <th className="text-right pb-2 font-medium">Payback</th>
-                  <th className="text-right pb-2 font-medium">Flux/mo</th>
-                  <th className="text-right pb-2 font-medium">Payback (F)</th>
+                  <th className="text-right pb-2 font-medium">Go/mo</th>
+                  <th className="text-right pb-2 font-medium">Payback (Go)</th>
                   <th className="text-right pb-2 font-medium">Type</th>
                 </tr>
               </thead>
               <tbody>
-                {allSavings.map(({ battery: b, savings: s, fluxSavings: fs }) => {
+                {allSavings.map(({ battery: b, savings: s, goSavings: gs }) => {
                   const total = b.price_gbp + b.install_gbp
                   const monthlyGbp = s.monthlyPence / 100
                   const paybackYears = monthlyGbp > 0 ? (total / monthlyGbp / 12).toFixed(1) : '—'
-                  const fluxMonthlyGbp = fs ? fs.monthlyPence / 100 : null
-                  const fluxPaybackYears = fluxMonthlyGbp && fluxMonthlyGbp > 0
-                    ? (total / fluxMonthlyGbp / 12).toFixed(1)
+                  const goMonthlyGbp = gs ? gs.monthlyPence / 100 : null
+                  const goPaybackYears = goMonthlyGbp && goMonthlyGbp > 0
+                    ? (total / goMonthlyGbp / 12).toFixed(1)
                     : null
                   const isSelected = b.id === selectedId
                   return (
@@ -297,10 +297,10 @@ export function BatteryOptimiser() {
                       <td className="text-right py-2 text-indigo-400 font-semibold">{penceToPounds(s.monthlyPence)}</td>
                       <td className="text-right py-2">{paybackYears} yrs</td>
                       <td className="text-right py-2 text-purple-400">
-                        {fs ? penceToPounds(fs.monthlyPence) : '—'}
+                        {gs ? penceToPounds(gs.monthlyPence) : '—'}
                       </td>
                       <td className="text-right py-2 text-slate-500">
-                        {fluxPaybackYears ? `${fluxPaybackYears} yrs` : '—'}
+                        {goPaybackYears ? `${goPaybackYears} yrs` : '—'}
                       </td>
                       <td className="text-right py-2">{b.plug_in ? '🔌 plug-in' : '🔧 installed'}</td>
                     </tr>
