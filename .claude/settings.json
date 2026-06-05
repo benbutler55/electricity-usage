@@ -4,7 +4,8 @@
       "Bash(ruff check scripts/*)",
       "Bash(curl -s https://benbutler55.github.io/electricity-usage/*)",
       "Bash(npm test)",
-      "Bash(npm run lint)"
+      "Bash(npm run lint)",
+      "mcp__ig-postgres__query"
     ]
   }
 }
