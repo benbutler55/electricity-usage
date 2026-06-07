@@ -28,7 +28,7 @@ jobs:
       - name: Test
         run: npm test
 
-  lint-python:
+  lint-and-test-python:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -37,9 +37,14 @@ jobs:
         uses: actions/setup-python@v6
         with:
           python-version: '3.12'
+          cache: pip
+          cache-dependency-path: scripts/requirements.txt
 
-      - name: Install ruff
-        run: pip install ruff
+      - name: Install dependencies
+        run: pip install ruff pytest -r scripts/requirements.txt
 
       - name: Lint
         run: ruff check scripts/
+
+      - name: Test
+        run: python -m pytest scripts/ -q
