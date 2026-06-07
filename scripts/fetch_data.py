@@ -22,6 +22,11 @@ from dateutil import tz
 LONDON = tz.gettz("Europe/London")
 OUT_DIR = "public/data"
 
+# Exit code signalling "couldn't reach the API this run" (e.g. an intermittent
+# edge/WAF 403). The workflow treats it as soft: keep the last successful deploy
+# rather than publishing empty data or marking the run failed.
+EXIT_FETCH_BLOCKED = 75
+
 
 def now_utc() -> datetime:
     return datetime.now(timezone.utc)
@@ -366,13 +371,21 @@ def main() -> None:
     client = OctopusClient(api_key)
     fetched_at = iso(now_utc())
 
-    # Step 1: Account discovery — fail fast if this fails
+    # Step 1: Account discovery — everything downstream needs it. If it fails
+    # (typically an intermittent edge/WAF 403 after retries), exit soft so the
+    # workflow keeps the last good deploy instead of shipping empty data.
     try:
         account = fetch_account(client, account_number)
         write_json("meta.json", {**account, "fetched_at": fetched_at})
     except Exception as e:
-        print(f"ERROR fetching account: {e}", file=sys.stderr)
-        sys.exit(1)
+        status = getattr(getattr(e, "response", None), "status_code", None)
+        if status == 401:
+            # Bad/revoked key is a real config error — fail loudly so it's noticed,
+            # not silently masked behind stale data.
+            print(f"ERROR: Octopus API rejected credentials (401) — check OCTOPUS_API_KEY: {e}", file=sys.stderr)
+            sys.exit(1)
+        print(f"WARNING: account discovery failed after retries: {e}", file=sys.stderr)
+        sys.exit(EXIT_FETCH_BLOCKED)
 
     mpan = account["mpan"]
     serial = account["meter_serial"]

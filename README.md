@@ -100,11 +100,13 @@ Data files from the Python fetch are served by the Vite dev server from `public/
 ### Tests
 
 ```bash
-npm test        # vitest run — unit tests for the battery savings engine (src/lib/*.test.ts)
+npm test                    # vitest — battery savings engine (src/lib/*.test.ts)
+python -m pytest scripts/   # Octopus client retry/backoff, User-Agent, failure diagnostics
 ```
 
 ## Notes
 
+- **Resilient fetch**: the Octopus client sends a descriptive `User-Agent` and retries transient 403/429/5xx with jittered backoff (honouring `Retry-After`). If the API is still unreachable after retries (e.g. an intermittent edge/WAF 403 on a CI runner IP), the workflow keeps the **last successful deploy** and skips redeploy rather than publishing empty data or failing the run — a `::warning::` is emitted instead. A genuine `401` (bad/revoked key) still fails the run loudly. On failure the client logs the response body + edge headers so the blocking layer is identifiable.
 - **Meter data lag**: Smart meter readings flow through the DCC and arrive at Octopus ~24–48h after the consumption period. The dashboard handles this gracefully — consumption sections show available data and label the lag.
 - **Agile price publication**: Tomorrow's half-hourly prices are published daily between 4pm and 8pm. The battery optimiser's live *schedule* shows tomorrow once available, falling back to today's remaining prices.
 - **Battery savings formula**: `saving = effectiveKwh × (avgPeakRate − avgChargeRate ÷ efficiency)`. Effective kWh is capped at your typical peak-hour consumption (from the heatmap) to avoid over-stating savings for batteries larger than your actual peak load.

@@ -37,31 +37,53 @@ jobs:
         run: pip install -r scripts/requirements.txt
 
       - name: Fetch Octopus Energy data
+        id: fetch
         env:
           OCTOPUS_API_KEY: ${{ secrets.OCTOPUS_API_KEY }}
           OCTOPUS_ACCOUNT_NUMBER: ${{ secrets.OCTOPUS_ACCOUNT_NUMBER }}
-        run: python scripts/fetch_data.py
+        run: |
+          set +e
+          python scripts/fetch_data.py
+          code=$?
+          set -e
+          if [ "$code" -eq 0 ]; then
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          elif [ "$code" -eq 75 ]; then
+            # Soft fail: the API was unreachable (e.g. intermittent edge 403).
+            # Keep the last successful deploy; don't publish empty data or fail.
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+            echo "::warning title=Octopus fetch blocked::API unreachable this run (transient 403/network); keeping the last successful deploy and skipping redeploy."
+          else
+            echo "::error::fetch_data.py failed with exit code $code"
+            exit "$code"
+          fi
 
       - name: Set up Node.js
+        if: steps.fetch.outputs.ok == 'true'
         uses: actions/setup-node@v6
         with:
           node-version: '22'
           cache: npm
 
       - name: Install npm dependencies
+        if: steps.fetch.outputs.ok == 'true'
         run: npm ci
 
       - name: Build
+        if: steps.fetch.outputs.ok == 'true'
         run: npm run build
 
       - name: Configure GitHub Pages
+        if: steps.fetch.outputs.ok == 'true'
         uses: actions/configure-pages@v6
 
       - name: Upload artifact
+        if: steps.fetch.outputs.ok == 'true'
         uses: actions/upload-pages-artifact@v5
         with:
           path: ./dist
 
       - name: Deploy to GitHub Pages
         id: deploy
+        if: steps.fetch.outputs.ok == 'true'
         uses: actions/deploy-pages@v5
