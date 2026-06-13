@@ -170,14 +170,14 @@ function isPriorityDischarge(
   timeIdx: number,
   timeSortedSlots: PriceSlot[],
   soc: number,
-  chargeRateKw: number,
+  dischargeRateKw: number,
   dischargeEligible: Set<string>,
 ): boolean {
   if (soc <= 1e-9) return false
   const remaining = timeSortedSlots
     .slice(timeIdx)
     .filter(s => dischargeEligible.has(s.valid_from))
-    .map(s => ({ price: s.value_inc_vat, energy: chargeRateKw * slotDurationHours(s) }))
+    .map(s => ({ price: s.value_inc_vat, energy: dischargeRateKw * slotDurationHours(s) }))
     .sort((a, b) => b.price - a.price)
   let cum = 0
   let cutoff = Infinity
@@ -208,6 +208,7 @@ export function scheduleSlots(
   chargeRateKw = CHARGE_RATE_KW,
   efficiency = ROUND_TRIP_EFFICIENCY,
   heatmapCells?: HeatmapCell[],
+  outputKw = chargeRateKw,
 ): ScheduledSlot[] {
   if (slots.length === 0) return []
 
@@ -219,21 +220,23 @@ export function scheduleSlots(
 
   byTime.forEach((slot, i) => {
     const p = slot.value_inc_vat
-    const slotEnergy = chargeRateKw * slotDurationHours(slot)
+    const dur = slotDurationHours(slot)
+    const chargeEnergy = chargeRateKw * dur     // energy in while charging
+    const dischargeEnergy = outputKw * dur      // energy out, capped by discharge power
     if (p <= maxChargePrice && soc < capacityKwh - 1e-6) {
-      soc = Math.min(capacityKwh, soc + slotEnergy)
+      soc = Math.min(capacityKwh, soc + chargeEnergy)
       actionMap.set(slot.valid_from, 'charge')
     } else if (
       dischargeEligible.has(slot.valid_from) &&
       soc > 1e-6 &&
-      isPriorityDischarge(p, i, byTime, soc, chargeRateKw, dischargeEligible)
+      isPriorityDischarge(p, i, byTime, soc, outputKw, dischargeEligible)
     ) {
       // Use consumption-capped deduction when heatmap available so the visual
       // matches what calcBatterySavings computes — otherwise full-rate depletion
       // makes the battery appear empty too soon and hides later discharge events.
-      let deduct = slotEnergy
+      let deduct = dischargeEnergy
       if (heatmapMap) {
-        deduct = Math.min(slotEnergy, slotConsumption(slot, heatmapMap, slotEnergy))
+        deduct = Math.min(dischargeEnergy, slotConsumption(slot, heatmapMap, dischargeEnergy))
       }
       soc = Math.max(0, soc - deduct)
       actionMap.set(slot.valid_from, 'discharge')
@@ -267,6 +270,7 @@ export function calcBatterySavings(
   heatmapCells?: HeatmapCell[],
   chargeRateKw = CHARGE_RATE_KW,
   efficiency = ROUND_TRIP_EFFICIENCY,
+  outputKw = chargeRateKw,
 ): BatterySavings {
   const empty: BatterySavings = {
     dailyPence: 0, monthlyPence: 0, theoreticalDailyPence: 0,
@@ -286,35 +290,37 @@ export function calcBatterySavings(
 
   byTime.forEach((slot, i) => {
     const p = slot.value_inc_vat
-    const slotEnergy = chargeRateKw * slotDurationHours(slot)
+    const dur = slotDurationHours(slot)
+    const chargeEnergy = chargeRateKw * dur     // energy in, bounded by charge rate
+    const dischargeEnergy = outputKw * dur       // energy out, bounded by discharge power
 
     // Charge
     if (p <= maxChargePrice) {
       if (soc < capacityKwh - 1e-6) {
-        const kwh = Math.min(slotEnergy, capacityKwh - soc)
+        const kwh = Math.min(chargeEnergy, capacityKwh - soc)
         soc += kwh
         chargeKwh += kwh
         chargeCost += (kwh / efficiency) * p   // grid draw cost inc round-trip loss
         chargeSlotCount++
       }
       if (socT < capacityKwh - 1e-6) {
-        socT = Math.min(capacityKwh, socT + slotEnergy)
+        socT = Math.min(capacityKwh, socT + chargeEnergy)
       }
     }
 
     // Discharge (both trackers use the same priority gate, with their own SoC)
     if (dischargeEligible.has(slot.valid_from)) {
-      if (socT > 1e-6 && isPriorityDischarge(p, i, byTime, socT, chargeRateKw, dischargeEligible)) {
-        const kwh = Math.min(slotEnergy, socT)
+      if (socT > 1e-6 && isPriorityDischarge(p, i, byTime, socT, outputKw, dischargeEligible)) {
+        const kwh = Math.min(dischargeEnergy, socT)
         socT = Math.max(0, socT - kwh)
         disKwhT += kwh
         disSavingT += kwh * p
       }
 
-      if (soc > 1e-6 && isPriorityDischarge(p, i, byTime, soc, chargeRateKw, dischargeEligible)) {
-        let kwh = Math.min(slotEnergy, soc)
+      if (soc > 1e-6 && isPriorityDischarge(p, i, byTime, soc, outputKw, dischargeEligible)) {
+        let kwh = Math.min(dischargeEnergy, soc)
         if (heatmapMap) {
-          const consumption = slotConsumption(slot, heatmapMap, slotEnergy)
+          const consumption = slotConsumption(slot, heatmapMap, dischargeEnergy)
           if (consumption < kwh) {
             kwh = consumption
             isConsumptionLimited = true
@@ -450,9 +456,10 @@ export function comparisonSavings(
   heatmapCells?: HeatmapCell[],
   chargeRateKw = CHARGE_RATE_KW,
   efficiency = ROUND_TRIP_EFFICIENCY,
+  outputKw = chargeRateKw,
 ): BatterySavings {
   const scoped = window ? sliceToDay(slots, window.startMs, window.endMs) : slots
-  return calcBatterySavings(scoped, capacityKwh, heatmapCells, chargeRateKw, efficiency)
+  return calcBatterySavings(scoped, capacityKwh, heatmapCells, chargeRateKw, efficiency, outputKw)
 }
 
 /**

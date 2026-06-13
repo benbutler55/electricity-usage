@@ -64,6 +64,21 @@ describe('calcBatterySavings — duration awareness', () => {
     expect(s.dailyPence).toBeGreaterThan(80)         // ≈ 4*(30 - 5) = 100p
   })
 
+  it('throttles discharge to output_kw, not the (higher) charge rate', () => {
+    // 10 kWh battery that charges fast (10 kW) but discharges slowly.
+    // A 4h cheap window fills it; a 4h expensive window can only pull
+    // output_kw × 4h out — so a 1 kW output empties just 4 kWh, not the full 10.
+    const slots = [
+      slot('2026-05-30T00:00:00+01:00', 4, 5),    // charge window
+      slot('2026-05-30T16:00:00+01:00', 4, 30),   // discharge window
+    ]
+    const throttled = calcBatterySavings(slots, 10, undefined, 10, 1, 1)    // output_kw = 1
+    expect(throttled.effectiveKwh).toBeCloseTo(4, 1)
+
+    const fullOutput = calcBatterySavings(slots, 10, undefined, 10, 1, 10)   // output_kw = 10
+    expect(fullOutput.effectiveKwh).toBeCloseTo(10, 1)
+  })
+
   it('caps a long discharge slot by summed consumption across its hours', () => {
     // Heatmap: 0.5 kWh per half-hour for every hour/dow → 1 kWh per hour.
     const cells: HeatmapCell[] = []

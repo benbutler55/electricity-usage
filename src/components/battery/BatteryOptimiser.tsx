@@ -158,20 +158,20 @@ export function BatteryOptimiser() {
   // Compute savings for all batteries (for comparison table)
   const allSavings = batteries.map(b => ({
     battery: b,
-    savings: comparisonSavings(prices.slots, cmpWindow, b.kwh, heatmap?.cells, b.charge_rate_kw, b.efficiency),
+    savings: comparisonSavings(prices.slots, cmpWindow, b.kwh, heatmap?.cells, b.charge_rate_kw, b.efficiency, b.output_kw),
     cosySavings: cosySlotsRaw.length > 0
-      ? comparisonSavings(cosySlotsRaw, cmpWindow, b.kwh, heatmap?.cells, b.charge_rate_kw, b.efficiency)
+      ? comparisonSavings(cosySlotsRaw, cmpWindow, b.kwh, heatmap?.cells, b.charge_rate_kw, b.efficiency, b.output_kw)
       : null,
   }))
 
   const selectedSavings = allSavings.find(s => s.battery.id === selectedId)?.savings
-    ?? comparisonSavings(prices.slots, cmpWindow, selected?.kwh ?? 5, heatmap?.cells, selected?.charge_rate_kw, selected?.efficiency)
+    ?? comparisonSavings(prices.slots, cmpWindow, selected?.kwh ?? 5, heatmap?.cells, selected?.charge_rate_kw, selected?.efficiency, selected?.output_kw)
 
   const scheduled = selected
-    ? scheduleSlots(targetSlots, selected.kwh, selected.charge_rate_kw, selected.efficiency, heatmap?.cells)
+    ? scheduleSlots(targetSlots, selected.kwh, selected.charge_rate_kw, selected.efficiency, heatmap?.cells, selected.output_kw)
     : []
 
-  // Go schedule, over the SAME window as Agile so the two timelines line up.
+  // Cosy schedule, over the SAME window as Agile so the two timelines line up.
   // Cosy's coarse multi-hour rate periods are clipped to the window then expanded
   // onto a 30-min grid, so it flows through scheduleSlots exactly like Agile.
   const winStart = targetSlots.length ? new Date(targetSlots[0].valid_from).getTime() : 0
@@ -180,7 +180,7 @@ export function BatteryOptimiser() {
     ? expandToHalfHours(sliceToDay(cosySlotsRaw, winStart, winEnd))
     : []
   const cosyScheduled = selected && cosyTarget.length
-    ? scheduleSlots(cosyTarget, selected.kwh, selected.charge_rate_kw, selected.efficiency, heatmap?.cells)
+    ? scheduleSlots(cosyTarget, selected.kwh, selected.charge_rate_kw, selected.efficiency, heatmap?.cells, selected.output_kw)
     : []
 
   return (
