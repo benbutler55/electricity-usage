@@ -74,6 +74,7 @@ export interface BatteryProduct {
   name: string
   kwh: number
   charge_rate_kw: number
+  output_kw: number      // continuous discharge power — caps how much load the battery can cover at once
   efficiency: number
   price_gbp: number
   install_gbp: number
