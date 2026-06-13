@@ -189,27 +189,45 @@ export function BatteryOptimiser() {
         </div>
       </div>
 
-      {/* Product selector */}
-      {batteries.length > 0 && (
-        <div className="flex gap-2 flex-wrap mb-5">
-          {batteries.map(b => (
-            <button
-              key={b.id}
-              onClick={() => setSelectedId(b.id)}
-              className={`px-3 py-2 rounded-lg text-xs font-medium transition-colors text-left ${
-                selectedId === b.id
-                  ? 'bg-indigo-600 text-white'
-                  : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
-              }`}
-            >
-              <div>{b.name}</div>
-              <div className={`font-normal ${selectedId === b.id ? 'text-indigo-200' : 'text-slate-400'}`}>
-                {b.kwh} kWh · {b.plug_in ? '13A plug' : 'installed'}
+      {/* Product selector — grouped: whole-home options first, portable kept for comparison */}
+      {batteries.length > 0 && (() => {
+        const renderBtn = (b: BatteryProduct) => (
+          <button
+            key={b.id}
+            onClick={() => setSelectedId(b.id)}
+            className={`px-3 py-2 rounded-lg text-xs font-medium transition-colors text-left ${
+              selectedId === b.id
+                ? 'bg-indigo-600 text-white'
+                : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
+            }`}
+          >
+            <div>{b.name}</div>
+            <div className={`font-normal ${selectedId === b.id ? 'text-indigo-200' : 'text-slate-400'}`}>
+              {b.kwh} kWh · {b.output_kw} kW · {b.plug_in ? '13A plug' : 'installed'}
+            </div>
+          </button>
+        )
+        const wholeHome = batteries.filter(b => b.whole_home)
+        const portable = batteries.filter(b => !b.whole_home)
+        return (
+          <div className="mb-5 space-y-3">
+            {wholeHome.length > 0 && (
+              <div>
+                <p className="text-xs font-medium text-slate-400 uppercase tracking-wide mb-2">Whole-home (installed)</p>
+                <div className="flex gap-2 flex-wrap">{wholeHome.map(renderBtn)}</div>
               </div>
-            </button>
-          ))}
-        </div>
-      )}
+            )}
+            {portable.length > 0 && (
+              <div>
+                <p className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-2">
+                  Portable · not for whole-home bill reduction
+                </p>
+                <div className="flex gap-2 flex-wrap opacity-80">{portable.map(renderBtn)}</div>
+              </div>
+            )}
+          </div>
+        )
+      })()}
 
       {/* Selected battery detail */}
       {selected && (
@@ -311,42 +329,62 @@ export function BatteryOptimiser() {
                 </tr>
               </thead>
               <tbody>
-                {allSavings.map(({ battery: b, savings: s, cosySavings: gs }) => {
-                  const total = b.price_gbp + b.install_gbp
-                  const monthlyGbp = s.monthlyPence / 100
-                  const paybackYears = monthlyGbp > 0 ? (total / monthlyGbp / 12).toFixed(1) : '—'
-                  const cosyMonthlyGbp = gs ? gs.monthlyPence / 100 : null
-                  const cosyPaybackYears = cosyMonthlyGbp && cosyMonthlyGbp > 0
-                    ? (total / cosyMonthlyGbp / 12).toFixed(1)
-                    : null
-                  const isSelected = b.id === selectedId
-                  return (
-                    <tr
-                      key={b.id}
-                      onClick={() => setSelectedId(b.id)}
-                      className={`border-b border-slate-700/50 cursor-pointer transition-colors ${
-                        isSelected ? 'text-slate-100' : 'text-slate-400 hover:text-slate-300'
-                      }`}
-                    >
-                      <td className="py-2 pr-4">
-                        <span className={`font-medium ${isSelected ? 'text-indigo-400' : ''}`}>{b.name}</span>
-                        {s.isConsumptionLimited && <span className="ml-1 text-amber-500">†</span>}
+                {(() => {
+                  const renderRow = (row: (typeof allSavings)[number]) => {
+                    const { battery: b, savings: s, cosySavings: gs } = row
+                    const total = b.price_gbp + b.install_gbp
+                    const monthlyGbp = s.monthlyPence / 100
+                    const paybackYears = monthlyGbp > 0 ? (total / monthlyGbp / 12).toFixed(1) : '—'
+                    const cosyMonthlyGbp = gs ? gs.monthlyPence / 100 : null
+                    const cosyPaybackYears = cosyMonthlyGbp && cosyMonthlyGbp > 0
+                      ? (total / cosyMonthlyGbp / 12).toFixed(1)
+                      : null
+                    const isSelected = b.id === selectedId
+                    return (
+                      <tr
+                        key={b.id}
+                        onClick={() => setSelectedId(b.id)}
+                        className={`border-b border-slate-700/50 cursor-pointer transition-colors ${
+                          isSelected ? 'text-slate-100' : 'text-slate-400 hover:text-slate-300'
+                        }`}
+                      >
+                        <td className="py-2 pr-4">
+                          <span className={`font-medium ${isSelected ? 'text-indigo-400' : ''}`}>{b.name}</span>
+                          {s.isConsumptionLimited && <span className="ml-1 text-amber-500">†</span>}
+                        </td>
+                        <td className="text-right py-2">{b.kwh}</td>
+                        <td className="text-right py-2">{penceToPounds(b.price_gbp * 100)}</td>
+                        <td className="text-right py-2">{b.install_gbp ? `~${penceToPounds(b.install_gbp * 100)}` : '—'}</td>
+                        <td className="text-right py-2 text-indigo-400 font-semibold">{penceToPounds(s.monthlyPence)}</td>
+                        <td className="text-right py-2">{paybackYears} yrs</td>
+                        <td className="text-right py-2 text-purple-400">
+                          {gs ? penceToPounds(gs.monthlyPence) : '—'}
+                        </td>
+                        <td className="text-right py-2 text-slate-500">
+                          {cosyPaybackYears ? `${cosyPaybackYears} yrs` : '—'}
+                        </td>
+                        <td className="text-right py-2">{b.plug_in ? '🔌 plug-in' : '🔧 installed'}</td>
+                      </tr>
+                    )
+                  }
+                  const groupHeader = (label: string) => (
+                    <tr key={label}>
+                      <td colSpan={9} className="pt-3 pb-1 text-[11px] uppercase tracking-wide text-slate-500 font-semibold">
+                        {label}
                       </td>
-                      <td className="text-right py-2">{b.kwh}</td>
-                      <td className="text-right py-2">{penceToPounds(b.price_gbp * 100)}</td>
-                      <td className="text-right py-2">{b.install_gbp ? `~${penceToPounds(b.install_gbp * 100)}` : '—'}</td>
-                      <td className="text-right py-2 text-indigo-400 font-semibold">{penceToPounds(s.monthlyPence)}</td>
-                      <td className="text-right py-2">{paybackYears} yrs</td>
-                      <td className="text-right py-2 text-purple-400">
-                        {gs ? penceToPounds(gs.monthlyPence) : '—'}
-                      </td>
-                      <td className="text-right py-2 text-slate-500">
-                        {cosyPaybackYears ? `${cosyPaybackYears} yrs` : '—'}
-                      </td>
-                      <td className="text-right py-2">{b.plug_in ? '🔌 plug-in' : '🔧 installed'}</td>
                     </tr>
                   )
-                })}
+                  const wholeHome = allSavings.filter(x => x.battery.whole_home)
+                  const portable = allSavings.filter(x => !x.battery.whole_home)
+                  return (
+                    <>
+                      {wholeHome.length > 0 && groupHeader('Whole-home (installed)')}
+                      {wholeHome.map(renderRow)}
+                      {portable.length > 0 && groupHeader('Portable · not for whole-home bill reduction')}
+                      {portable.map(renderRow)}
+                    </>
+                  )
+                })()}
               </tbody>
             </table>
             <p className="text-xs text-slate-600 mt-2">
