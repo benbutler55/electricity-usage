@@ -456,16 +456,23 @@ export function comparisonSavings(
 }
 
 /**
- * Average power (kW) drawn during the home's single busiest hour.
+ * Average power (kW) drawn during the home's busiest EXPENSIVE-rate hour — the
+ * load the battery would actually have to cover by discharging.
  *
  * Heatmap cells are hourly, so a cell's avg_kwh over one hour is already an
- * average power in kW.  NOTE: this is an average over the hour AND over the
- * sampled weeks — real instantaneous draw (oven + kettle + boiler at once)
- * spikes well above it.  That gap is why assessOutputPower applies a margin.
+ * average power in kW.  We look only at hours in the dear price tier (≥ mid):
+ * a storage-heater home's true peak draw is the cheap OVERNIGHT charging window,
+ * but the battery charges (not discharges) then, so counting it would over-warn.
+ * Falls back to all hours when nothing reaches the dear tier (e.g. a flat-rate
+ * heatmap).  NOTE: still an average over the hour AND the sampled weeks — real
+ * instantaneous draw spikes above it, which is why assessOutputPower can apply a
+ * margin via PEAK_POWER_SAFETY_FACTOR.
  */
 export function peakDemandKw(cells?: HeatmapCell[]): number {
   if (!cells?.length) return 0
-  return Math.max(...cells.map(c => c.avg_kwh))
+  const dear = cells.filter(c => c.avg_price_inc_vat >= PRICE_THRESHOLDS.mid)
+  const relevant = dear.length ? dear : cells
+  return Math.max(...relevant.map(c => c.avg_kwh))
 }
 
 export interface OutputVerdict {

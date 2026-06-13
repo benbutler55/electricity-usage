@@ -137,8 +137,9 @@ export function BatteryOptimiser() {
   const selected = batteries.find(b => b.id === selectedId) ?? batteries[0]
 
   // Can the selected battery's continuous discharge power cover this home's
-  // busiest hour? If not, the saving above is optimistic — the shortfall is
-  // still imported at the peak rate.
+  // busiest expensive-rate hour (the load it would actually discharge into)?
+  // If not, the saving above is optimistic — the shortfall is still imported
+  // at the peak rate.
   const peakKw = peakDemandKw(heatmap?.cells)
   const outputVerdict = selected ? assessOutputPower(selected.output_kw, peakKw) : null
 

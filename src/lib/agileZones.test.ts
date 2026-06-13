@@ -195,10 +195,19 @@ describe('peakDemandKw', () => {
     expect(peakDemandKw(undefined)).toBe(0)
     expect(peakDemandKw([])).toBe(0)
   })
-  it('returns the busiest hourly-average cell (kWh/hour === kW)', () => {
+  it('ignores the cheap overnight charging spike, using the busiest dear-rate hour', () => {
     const cells: HeatmapCell[] = [
-      { hour: 2, day_of_week: 0, avg_kwh: 3.2 } as HeatmapCell,   // overnight storage-heater charge
-      { hour: 18, day_of_week: 0, avg_kwh: 1.4 } as HeatmapCell,  // evening
+      // overnight storage-heater charge: high draw but CHEAP price → excluded
+      { hour: 2, day_of_week: 0, avg_kwh: 3.2, avg_price_inc_vat: 8 } as HeatmapCell,
+      // expensive evening hour the battery would actually discharge into
+      { hour: 18, day_of_week: 0, avg_kwh: 1.4, avg_price_inc_vat: 35 } as HeatmapCell,
+    ]
+    expect(peakDemandKw(cells)).toBeCloseTo(1.4)
+  })
+  it('falls back to the overall busiest hour when no hour reaches the dear tier', () => {
+    const cells: HeatmapCell[] = [
+      { hour: 2, day_of_week: 0, avg_kwh: 3.2, avg_price_inc_vat: 8 } as HeatmapCell,
+      { hour: 18, day_of_week: 0, avg_kwh: 1.4, avg_price_inc_vat: 12 } as HeatmapCell,
     ]
     expect(peakDemandKw(cells)).toBeCloseTo(3.2)
   })
