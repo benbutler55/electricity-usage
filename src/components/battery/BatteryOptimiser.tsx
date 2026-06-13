@@ -40,7 +40,7 @@ function groupConsecutive(scheduled: ReturnType<typeof scheduleSlots>, action: s
 
 /**
  * Price timeline + charge/discharge window lists for one tariff's schedule.
- * Rendered once per tariff (Agile, Go) so both look identical — the schedule is
+ * Rendered once per tariff (Agile, Cosy) so both look identical — the schedule is
  * already normalised to half-hour slots upstream, so this stays tariff-agnostic.
  */
 function ScheduleView({ title, scheduled }: { title: string; scheduled: ScheduledSlot[] }) {
@@ -118,7 +118,7 @@ export function BatteryOptimiser() {
   const { data: heatmap } = useData<HeatmapData>('./data/heatmap.json')
   const { data: catalog } = useData<BatteryCatalog>('./data/batteries.json')
   const { data: tariffComparison } = useData<TariffComparisonData>('./data/tariff_comparison.json')
-  const [selectedId, setSelectedId] = useState('ecoflow-powerocean-5')
+  const [selectedId, setSelectedId] = useState('givenergy-all-in-one')
 
   if (loading) return <LoadingSpinner />
   if (error || !prices) return <ErrorBanner />
@@ -136,20 +136,24 @@ export function BatteryOptimiser() {
   const batteries: BatteryProduct[] = catalog?.batteries ?? []
   const selected = batteries.find(b => b.id === selectedId) ?? batteries[0]
 
-  const goSlotsRaw = tariffComparison?.tariffs.find(t => t.id === 'go')?.slots ?? []
+  // Compared against Agile: Octopus Cosy — eligible for electric-boiler / storage-heater
+  // homes (unlike Octopus Go, which needs an EV/smart charger). The purpose-built
+  // storage-heater tariff (Snug Octopus) has no public API product code and is currently
+  // unavailable, so Cosy is the closest live comparator for this home.
+  const cosySlotsRaw = tariffComparison?.tariffs.find(t => t.id === 'cosy')?.slots ?? []
 
   // Savings are scored over one stable, fully-covered day so the comparison is
   // apples-to-apples across tariffs and never collapses to £0.00 on a partial
   // day (e.g. before tomorrow's Agile prices publish).  comparisonSavings slices
-  // each tariff to this shared window (clipping Go's multi-hour rate periods).
+  // each tariff to this shared window (clipping Cosy's multi-hour rate periods).
   const cmpWindow = representativeComparisonDay(prices.slots)
 
   // Compute savings for all batteries (for comparison table)
   const allSavings = batteries.map(b => ({
     battery: b,
     savings: comparisonSavings(prices.slots, cmpWindow, b.kwh, heatmap?.cells, b.charge_rate_kw, b.efficiency),
-    goSavings: goSlotsRaw.length > 0
-      ? comparisonSavings(goSlotsRaw, cmpWindow, b.kwh, heatmap?.cells, b.charge_rate_kw, b.efficiency)
+    cosySavings: cosySlotsRaw.length > 0
+      ? comparisonSavings(cosySlotsRaw, cmpWindow, b.kwh, heatmap?.cells, b.charge_rate_kw, b.efficiency)
       : null,
   }))
 
@@ -161,15 +165,15 @@ export function BatteryOptimiser() {
     : []
 
   // Go schedule, over the SAME window as Agile so the two timelines line up.
-  // Go's coarse multi-hour rate periods are clipped to the window then expanded
+  // Cosy's coarse multi-hour rate periods are clipped to the window then expanded
   // onto a 30-min grid, so it flows through scheduleSlots exactly like Agile.
   const winStart = targetSlots.length ? new Date(targetSlots[0].valid_from).getTime() : 0
   const winEnd = targetSlots.length ? new Date(targetSlots[targetSlots.length - 1].valid_to).getTime() : 0
-  const goTarget = selected && goSlotsRaw.length
-    ? expandToHalfHours(sliceToDay(goSlotsRaw, winStart, winEnd))
+  const cosyTarget = selected && cosySlotsRaw.length
+    ? expandToHalfHours(sliceToDay(cosySlotsRaw, winStart, winEnd))
     : []
-  const goScheduled = selected && goTarget.length
-    ? scheduleSlots(goTarget, selected.kwh, selected.charge_rate_kw, selected.efficiency, heatmap?.cells)
+  const cosyScheduled = selected && cosyTarget.length
+    ? scheduleSlots(cosyTarget, selected.kwh, selected.charge_rate_kw, selected.efficiency, heatmap?.cells)
     : []
 
   return (
@@ -285,7 +289,7 @@ export function BatteryOptimiser() {
       {/* Per-tariff schedule: timeline + charge/discharge windows */}
       <p className="text-xs text-slate-500 mb-2">Price timeline (charge / discharge windows)</p>
       <ScheduleView title="Agile" scheduled={scheduled} />
-      {goScheduled.length > 0 && <ScheduleView title="Octopus Go" scheduled={goScheduled} />}
+      {cosyScheduled.length > 0 && <ScheduleView title="Octopus Cosy" scheduled={cosyScheduled} />}
 
       {/* Comparison table */}
       {batteries.length > 0 && (
@@ -301,19 +305,19 @@ export function BatteryOptimiser() {
                   <th className="text-right pb-2 font-medium">+Install</th>
                   <th className="text-right pb-2 font-medium">Monthly saving</th>
                   <th className="text-right pb-2 font-medium">Payback</th>
-                  <th className="text-right pb-2 font-medium">Go/mo</th>
-                  <th className="text-right pb-2 font-medium">Payback (Go)</th>
+                  <th className="text-right pb-2 font-medium">Cosy/mo</th>
+                  <th className="text-right pb-2 font-medium">Payback (Cosy)</th>
                   <th className="text-right pb-2 font-medium">Type</th>
                 </tr>
               </thead>
               <tbody>
-                {allSavings.map(({ battery: b, savings: s, goSavings: gs }) => {
+                {allSavings.map(({ battery: b, savings: s, cosySavings: gs }) => {
                   const total = b.price_gbp + b.install_gbp
                   const monthlyGbp = s.monthlyPence / 100
                   const paybackYears = monthlyGbp > 0 ? (total / monthlyGbp / 12).toFixed(1) : '—'
-                  const goMonthlyGbp = gs ? gs.monthlyPence / 100 : null
-                  const goPaybackYears = goMonthlyGbp && goMonthlyGbp > 0
-                    ? (total / goMonthlyGbp / 12).toFixed(1)
+                  const cosyMonthlyGbp = gs ? gs.monthlyPence / 100 : null
+                  const cosyPaybackYears = cosyMonthlyGbp && cosyMonthlyGbp > 0
+                    ? (total / cosyMonthlyGbp / 12).toFixed(1)
                     : null
                   const isSelected = b.id === selectedId
                   return (
@@ -337,7 +341,7 @@ export function BatteryOptimiser() {
                         {gs ? penceToPounds(gs.monthlyPence) : '—'}
                       </td>
                       <td className="text-right py-2 text-slate-500">
-                        {goPaybackYears ? `${goPaybackYears} yrs` : '—'}
+                        {cosyPaybackYears ? `${cosyPaybackYears} yrs` : '—'}
                       </td>
                       <td className="text-right py-2">{b.plug_in ? '🔌 plug-in' : '🔧 installed'}</td>
                     </tr>
@@ -347,7 +351,7 @@ export function BatteryOptimiser() {
             </table>
             <p className="text-xs text-slate-600 mt-2">
               † saving capped at your typical peak-hour consumption (less than battery capacity) · click row to select.
-              Agile &amp; Go savings modelled over one representative full day so they stay comparable.
+              Agile &amp; Cosy savings modelled over one representative full day so they stay comparable.
             </p>
           </div>
         </div>
