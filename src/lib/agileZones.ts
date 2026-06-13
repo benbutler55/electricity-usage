@@ -456,6 +456,52 @@ export function comparisonSavings(
 }
 
 /**
+ * Average power (kW) drawn during the home's single busiest hour.
+ *
+ * Heatmap cells are hourly, so a cell's avg_kwh over one hour is already an
+ * average power in kW.  NOTE: this is an average over the hour AND over the
+ * sampled weeks — real instantaneous draw (oven + kettle + boiler at once)
+ * spikes well above it.  That gap is why assessOutputPower applies a margin.
+ */
+export function peakDemandKw(cells?: HeatmapCell[]): number {
+  if (!cells?.length) return 0
+  return Math.max(...cells.map(c => c.avg_kwh))
+}
+
+export interface OutputVerdict {
+  sufficient: boolean
+  requiredKw: number
+  message: string | null
+}
+
+/**
+ * How much the required output should exceed the busiest-hour AVERAGE before a
+ * battery counts as able to cover peak load.  1.0 = compare against the hourly
+ * average directly; >1.0 = demand headroom for the instantaneous spikes that an
+ * hourly average hides.  This single knob is the judgement call — raise it to be
+ * more conservative about flagging under-powered batteries.
+ */
+export const PEAK_POWER_SAFETY_FACTOR = 1.0
+
+/**
+ * Decide whether a battery's continuous discharge power (outputKw) can cover the
+ * home's peak demand (peakKw, from peakDemandKw).  When it can't, the battery
+ * supplies only part of the load during busy hours and the shortfall is still
+ * imported at the peak rate — so the modelled saving is optimistic.
+ */
+export function assessOutputPower(outputKw: number, peakKw: number): OutputVerdict {
+  const requiredKw = peakKw * PEAK_POWER_SAFETY_FACTOR
+  if (peakKw <= 0 || outputKw >= requiredKw) {
+    return { sufficient: true, requiredKw, message: null }
+  }
+  return {
+    sufficient: false,
+    requiredKw,
+    message: `Discharges at up to ${outputKw} kW, but your busiest hour averages ~${peakKw.toFixed(1)} kW. During heavy periods the battery covers only part of the load — the rest is still imported at the peak rate.`,
+  }
+}
+
+/**
  * Estimates potential saving (pence) if peakKwh units were shifted
  * from peakPrice to the cheapest available price in slots.
  */

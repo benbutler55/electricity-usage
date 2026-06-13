@@ -6,7 +6,7 @@ import { LoadingSpinner } from '../shared/LoadingSpinner'
 import { ErrorBanner } from '../shared/ErrorBanner'
 import { formatTime, penceToPounds } from '../../lib/formatters'
 import { tierColour } from '../../lib/priceColour'
-import { scheduleSlots, comparisonSavings, representativeComparisonDay, sliceToDay, expandToHalfHours, ROUND_TRIP_EFFICIENCY } from '../../lib/agileZones'
+import { scheduleSlots, comparisonSavings, representativeComparisonDay, sliceToDay, expandToHalfHours, peakDemandKw, assessOutputPower, ROUND_TRIP_EFFICIENCY } from '../../lib/agileZones'
 import type { ScheduledSlot } from '../../lib/agileZones'
 
 const ACTION_COLOUR: Record<string, string> = {
@@ -136,6 +136,12 @@ export function BatteryOptimiser() {
   const batteries: BatteryProduct[] = catalog?.batteries ?? []
   const selected = batteries.find(b => b.id === selectedId) ?? batteries[0]
 
+  // Can the selected battery's continuous discharge power cover this home's
+  // busiest hour? If not, the saving above is optimistic — the shortfall is
+  // still imported at the peak rate.
+  const peakKw = peakDemandKw(heatmap?.cells)
+  const outputVerdict = selected ? assessOutputPower(selected.output_kw, peakKw) : null
+
   // Compared against Agile: Octopus Cosy — eligible for electric-boiler / storage-heater
   // homes (unlike Octopus Go, which needs an EV/smart charger). The purpose-built
   // storage-heater tariff (Snug Octopus) has no public API product code and is currently
@@ -252,10 +258,23 @@ export function BatteryOptimiser() {
               </div>
             )}
             <div>
+              <p className="text-xs text-slate-500">Output</p>
+              <p className={`text-base font-bold ${outputVerdict && !outputVerdict.sufficient ? 'text-amber-400' : 'text-slate-200'}`}>
+                {selected.output_kw} kW
+              </p>
+            </div>
+            <div>
               <p className="text-xs text-slate-500">Total</p>
               <p className="text-base font-bold text-slate-100">{penceToPounds((selected.price_gbp + selected.install_gbp) * 100)}</p>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Discharge-power warning: battery can't cover the home's peak load */}
+      {outputVerdict && !outputVerdict.sufficient && outputVerdict.message && (
+        <div className="mb-5 px-3 py-2 bg-amber-900/20 border border-amber-800/40 rounded-lg text-xs text-amber-400">
+          ⚠ {outputVerdict.message}
         </div>
       )}
 

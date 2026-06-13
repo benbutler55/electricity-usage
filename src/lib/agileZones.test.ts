@@ -7,6 +7,9 @@ import {
   sliceToDay,
   comparisonSavings,
   expandToHalfHours,
+  peakDemandKw,
+  assessOutputPower,
+  PEAK_POWER_SAFETY_FACTOR,
 } from './agileZones'
 
 // --- helpers -------------------------------------------------------------
@@ -184,5 +187,36 @@ describe('sliceToDay', () => {
                   endMs: new Date('2026-05-31T00:00:00+01:00').getTime() }
     const far = [slot('2026-06-05T00:00:00+01:00', 1, 10)]
     expect(sliceToDay(far, win.startMs, win.endMs)).toHaveLength(0)
+  })
+})
+
+describe('peakDemandKw', () => {
+  it('returns 0 with no heatmap', () => {
+    expect(peakDemandKw(undefined)).toBe(0)
+    expect(peakDemandKw([])).toBe(0)
+  })
+  it('returns the busiest hourly-average cell (kWh/hour === kW)', () => {
+    const cells: HeatmapCell[] = [
+      { hour: 2, day_of_week: 0, avg_kwh: 3.2 } as HeatmapCell,   // overnight storage-heater charge
+      { hour: 18, day_of_week: 0, avg_kwh: 1.4 } as HeatmapCell,  // evening
+    ]
+    expect(peakDemandKw(cells)).toBeCloseTo(3.2)
+  })
+})
+
+describe('assessOutputPower', () => {
+  it('is sufficient when output meets or exceeds required power', () => {
+    const v = assessOutputPower(11.5, 3.2)
+    expect(v.sufficient).toBe(true)
+    expect(v.message).toBeNull()
+  })
+  it('is sufficient when there is no demand data (peakKw = 0)', () => {
+    expect(assessOutputPower(0.8, 0).sufficient).toBe(true)
+  })
+  it('warns when output is below required power', () => {
+    const v = assessOutputPower(3.68, 5.0)   // Fox ESS vs a 5 kW peak hour
+    expect(v.sufficient).toBe(false)
+    expect(v.message).toMatch(/3.68 kW/)
+    expect(v.requiredKw).toBeCloseTo(5.0 * PEAK_POWER_SAFETY_FACTOR)
   })
 })
